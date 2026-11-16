@@ -1561,8 +1561,12 @@ CP.NAV=[
  {id:'ai',l:'Adjoint IA',k:'AI',i:'spark',b:'IA'}
 ];
 var ALL=CP.NAV.map(function(n){return n.id});
-CP.ROLES=['Administrateur','Comptable','Manager','Employé'];
-CP.ROLE_MODS={'Administrateur':ALL,'Comptable':['compta','inbox','tax','banks','reports','wallets','momo','suppliers'],'Manager':['sales','projects','expenses','clients','team','suppliers'],'Employé':['expenses','projects']};
+CP.ROLES=['Gérant / Admin','Comptable','Caissier / Vendeur'];
+CP.roleKey=function(r){r=String(r||'');return /admin|gérant|gerant|propri/i.test(r)?'admin':(/compt|accountant/i.test(r)?'accountant':'cashier')};
+CP.roleName=function(r){return CP.ROLES[{admin:0,accountant:1,cashier:2}[CP.roleKey(r)]]};
+CP.ROLE_MODS={'Gérant / Admin':ALL,'Comptable':['compta','inbox','tax','banks','reports','wallets','momo','suppliers','expenses'],'Caissier / Vendeur':['sales','clients','wallets','momo','stock']};
+CP.ROLE_MODS['Administrateur']=CP.ROLE_MODS['Gérant / Admin'];CP.ROLE_MODS['Manager']=CP.ROLE_MODS['Caissier / Vendeur'];CP.ROLE_MODS['Employé']=CP.ROLE_MODS['Caissier / Vendeur'];
+CP.ROLE_DESC={'Gérant / Admin':'Accès complet, paramètres DGI, gestion des utilisateurs.','Comptable':'Écritures SYSCOHADA, TVA, exports et validation.','Caissier / Vendeur':'Devis, factures et encaissements uniquement.'};
 CP.JOURNALS=[['VT','Ventes'],['AC','Achats'],['BQ','Banque'],['CA','Caisse'],['OD','Opérations diverses']];
 CP.CATS=['Transport','Fournitures','Repas clients','Hébergement','Marketing','Autres'];
 CP.STEPS=['Préparation','Mélange','Conditionnement','Terminé'];
@@ -1612,11 +1616,11 @@ CP.DEF=function(){return{
   {id:'t1',date:a(6),from:'w1',to:'w3',amt:300000,note:'Approvisionnement de la caisse'},
   {id:'t2',date:a(18),from:'w1',to:'w4',amt:500000,note:'Épargne du mois'}],
  members:[
-  {id:'m1',name:'Miley',email:'miley@atelier-lagune.ci',role:'Administrateur',mods:ALL.slice(),last:'Aujourd’hui',st:'active'},
+  {id:'m1',name:'Miley',email:'miley@atelier-lagune.ci',role:'Gérant / Admin',mods:ALL.slice(),last:'Aujourd’hui',st:'active'},
   {id:'m2',name:'Yao Kouassi',email:'yao.kouassi@atelier-lagune.ci',role:'Comptable',mods:CP.ROLE_MODS['Comptable'].slice(),last:'Aujourd’hui',st:'active'},
-  {id:'m3',name:'Fatou Diallo',email:'fatou.diallo@atelier-lagune.ci',role:'Manager',mods:CP.ROLE_MODS['Manager'].slice(),last:'Hier',st:'active'},
-  {id:'m4',name:'Serge N’Guessan',email:'serge.nguessan@atelier-lagune.ci',role:'Employé',mods:CP.ROLE_MODS['Employé'].slice(),last:'Hier',st:'active'},
-  {id:'m5',name:'Aïcha Traoré',email:'aicha.traore@atelier-lagune.ci',role:'Employé',mods:['expenses','projects'],last:'—',st:'invited'}],
+  {id:'m3',name:'Fatou Diallo',email:'fatou.diallo@atelier-lagune.ci',role:'Caissier / Vendeur',mods:CP.ROLE_MODS['Caissier / Vendeur'].slice(),last:'Hier',st:'active'},
+  {id:'m4',name:'Serge N’Guessan',email:'serge.nguessan@atelier-lagune.ci',role:'Caissier / Vendeur',mods:CP.ROLE_MODS['Caissier / Vendeur'].slice(),last:'Hier',st:'active'},
+  {id:'m5',name:'Aïcha Traoré',email:'aicha.traore@atelier-lagune.ci',role:'Caissier / Vendeur',mods:['sales','clients'],last:'—',st:'invited'}],
  products:[
   {id:'p1',name:'Ramette papier A4',cat:'Fournitures',stock:14,min:20,cost:3200,price:4600},
   {id:'p2',name:'Cartouche d’encre noire',cat:'Fournitures',stock:3,min:5,cost:18500,price:25000},
@@ -1670,7 +1674,7 @@ CP.EMPTY=function(){
  var d=CP.DEF();
  ['clients','inv','docs','entries','moves','products','po','projects','exps','prodo','emps','leaves','bank','momo','momoAcc','suppliers','audit'].forEach(function(k){d[k]=[]});
  d.wallets=[{id:'w1',name:'Compte courant',type:'pro',bal:0,color:'#22d3ee'},{id:'w3',name:'Caisse espèces',type:'pro',bal:0,color:'#c6f432'}];
- d.members=[{id:'m1',name:'',email:'',role:'Administrateur',mods:ALL.slice(),last:'Aujourd’hui',st:'active'}];
+ d.members=[{id:'m1',name:'',email:'',role:'Gérant / Admin',mods:ALL.slice(),last:'Aujourd’hui',st:'active'}];
  d.decl=[{id:'d3',label:'TVA',period:mname(-1),due:CP.nextDay(15),amt:0,st:'todo',live:true}];
  d.baseExp=0;d.vatRate=18;d.xp={total:0,streak:0,last:''};d.read={};d.q={};d.payDone='';d.company={name:'',country:'CI',nif:'',address:'',phone:''};d.settings.name='';
  return d;
@@ -2440,8 +2444,8 @@ function modChecks(){return CP.NAV.filter(function(n){return n.id!=='dashboard'}
 A['team.invite']=function(){
  CP.form({title:'Inviter un collaborateur',sub:'Choisis son rôle et les modules qu’il pourra ouvrir.',fields:[
   {k:'name',l:'Nom',req:true},{k:'email',l:'E-mail',t:'email',req:true},
-  {k:'role',l:'Rôle',t:'select',o:CP.ROLES.map(function(r){return[r,t(r)]}),v:'Employé',w:true},
-  {k:'mods',l:'Modules accessibles',t:'checks',o:modChecks(),v:CP.ROLE_MODS['Employé'],w:true}],
+  {k:'role',l:'Rôle',t:'select',o:CP.ROLES.map(function(r){return[r,t(r)]}),v:'Caissier / Vendeur',w:true},
+  {k:'mods',l:'Modules accessibles',t:'checks',o:modChecks(),v:CP.ROLE_MODS['Caissier / Vendeur'],w:true}],
   fn:function(v){
    if(CP.S.members.some(function(m){return m.email.toLowerCase()===v.email.toLowerCase()}))return t('Cette adresse e-mail est déjà dans l’équipe.');
    CP.S.members.push({id:'m'+CP.uid(),name:v.name,email:v.email,role:v.role,mods:v.mods,last:'—',st:'invited'});
@@ -2450,7 +2454,7 @@ A['team.invite']=function(){
 A['team.edit']=function(id){
  var m=by(CP.S.members,id);if(!m)return;
  CP.form({title:tf('Accès de {0}',m.name),fields:[
-  {k:'role',l:'Rôle',t:'select',o:CP.ROLES.map(function(r){return[r,t(r)]}),v:m.role,w:true},
+  {k:'role',l:'Rôle',t:'select',o:CP.ROLES.map(function(r){return[r,t(r)]}),v:CP.roleName(m.role),w:true},
   {k:'mods',l:'Modules accessibles',t:'checks',o:modChecks(),v:m.mods,w:true}],
   fn:function(v){m.role=v.role;m.mods=v.mods;CP.log('Accès modifiés : '+m.name);CP.toast(tf('Accès de {0} mis à jour',m.name));CP.refresh()}});
 };
@@ -2472,12 +2476,12 @@ V.team=function(){
  h+=CP.card('Membres de l’équipe',CP.table('team',{
   sort:['name',1],rows:function(){return S.members},
   chips:[['all','Tous'],['active','Actifs'],['invited','En attente'],['off','Désactivés']],chip:function(r,v){return r.st===v},
-  cols:[{k:'name',l:'Nom',v:function(r){return r.name+' '+r.email},f:function(r){return '<b>'+esc(r.name)+'</b><small>'+esc(r.email)+'</small>'}},{k:'role',l:'Rôle',v:function(r){return t(r.role)},f:function(r){return CP.pill('info',t(r.role))}},
+  cols:[{k:'name',l:'Nom',v:function(r){return r.name+' '+r.email},f:function(r){return '<b>'+esc(r.name)+'</b><small>'+esc(r.email)+'</small>'}},{k:'role',l:'Rôle',v:function(r){return t(CP.roleName(r.role))},f:function(r){return CP.pill('info',t(CP.roleName(r.role)))}},
    {k:'mods',l:'Modules',v:function(r){return r.mods.length},f:function(r){return '<span title="'+esc(r.mods.map(CP.navLabel).join(', '))+'">'+esc(tf('{0} modules',r.mods.length))+'</span>'}},{k:'last',l:'Dernière activité',f:function(r){return esc(t(r.last))}},
    {k:'st',l:'Statut',v:function(r){return t(lab[r.st][1])},f:function(r){return CP.pill(lab[r.st][0],t(lab[r.st][1]))}}],
   act:function(r){var a=[['team.edit','edit','Modifier le rôle et les accès']];if(r.id!=='m1'){a.push(['team.toggle',r.st==='off'?'check':'lock',r.st==='off'?'Réactiver l’accès':'Désactiver l’accès']);a.push(['team.del','trash','Supprimer',1])}return a}
  }));
- h+='<div class="grid-2 even">'+CP.card('Rôles et permissions','<div class="stack">'+CP.ROLES.map(function(r){return '<div class="alert"><span class="ico v">'+ic('shield',16)+'</span><div class="body"><b>'+esc(t(r))+'</b><span>'+esc(CP.ROLE_MODS[r].map(CP.navLabel).join(' · '))+'</span></div></div>'}).join('')+'</div>')
+ h+='<div class="grid-2 even">'+CP.card('Rôles et permissions','<div class="stack">'+CP.ROLES.map(function(r){return '<div class="alert"><span class="ico v">'+ic('shield',16)+'</span><div class="body"><b>'+esc(t(r))+'</b><span>'+esc(t(CP.ROLE_DESC[r])+' ')+esc(CP.ROLE_MODS[r].map(CP.navLabel).join(' · '))+'</span></div></div>'}).join('')+'</div>')
   +CP.card('Journal d’audit',S.audit.length?'<div class="stack">'+S.audit.slice(0,8).map(function(a){var d=new Date(a.t);return '<div class="alert"><span class="ico w">'+ic('clock',16)+'</span><div class="body"><b>'+esc(a.x)+'</b><span>'+esc(a.w)+' · '+d.toLocaleTimeString(CP.loc(),{hour:'2-digit',minute:'2-digit'})+'</span></div></div>'}).join('')+'</div>':'<div class="empty">'+esc(t('Aucune action pour l’instant. Chaque modification apparaîtra ici.'))+'</div>')+'</div>';
  return h;
 };
@@ -4581,7 +4585,7 @@ function renderAuth(){
   +'<button class="lg-go" type="submit" id="auGo"><span>'+esc(t(up?'Créer mon compte':'Se connecter'))+'</span>'+ic('arrow',26)+'</button></form>'
   +'<div class="lg-or"><span>'+esc(t('ou'))+'</span></div>'
   +(CP.sb?'<div class="lg-soc one"><button type="button" class="lg-sec" data-act="auth.prov" data-id="gmail">'+provIcon('gmail')+'<span>'+esc(t('Continuer avec Google'))+'</span></button></div>':'<div class="lg-soc"><button type="button" class="lg-sec" data-act="auth.prov" data-id="gmail"'+(prov==='gmail'?' aria-pressed="true"':'')+'>'+provIcon('gmail')+'<span>Gmail</span></button><button type="button" class="lg-sec" data-act="auth.prov" data-id="facebook"'+(prov==='facebook'?' aria-pressed="true"':'')+'>'+provIcon('facebook')+'<span>Facebook</span></button></div>')
-  +'<div class="lg-alt">'+(c?'<button class="lg-sec" data-act="auth.claude">'+ic('user',18)+'<span>'+esc(t('Compte Claude'))+'</span></button>':'')+'<button class="lg-sec" data-act="auth.guest">'+ic('eye',18)+'<span>'+esc(t('Essayer sans compte'))+'</span></button></div>'
+  +'<div class="lg-alt">'+(c?'<button class="lg-sec" data-act="auth.claude">'+ic('user',18)+'<span>'+esc(t('Compte Claude'))+'</span></button>':'')+'</div>'
   +'<p class="lg-note">'+ic('shield',13)+esc(CP.sb?t('Tes données sont enregistrées en ligne, protégées par ton compte, et disponibles sur tous tes appareils.'):t('Ton espace reste protégé par un mot de passe ComptaPro. La vérification directe par Google ou Facebook (OAuth) nécessite un serveur : elle n’est pas disponible dans cette version.'))+'</p>'
   +'<p class="lg-sw">'+esc(t(up?'Tu as déjà un compte ?':'Pas encore de compte ?'))+' <button type="button" class="lg-lnk" data-act="auth.tab" data-id="'+(up?'in':'up')+'">'+esc(t(up?'Se connecter':'Créer un compte'))+'</button></p></section>'
   +'<p class="lg-legal">'+esc(t('En cliquant sur « Se connecter », j’accepte les Conditions d’utilisation et la Politique de confidentialité.'))+'</p></div>';
@@ -4855,7 +4859,7 @@ A.onboard=function(first){
  var h='<h2>'+esc(first?t('Bienvenue sur ComptaPro'):t('Nouveau dossier'))+'</h2><p class="sub">'+esc(first?t('Crée ton espace personnel : toi seul y accèdes avec ton compte. Tu pourras le modifier plus tard dans les réglages.'):t('Chaque dossier a sa propre comptabilité, séparée des autres.'))+'</p>'
  +(first?'<div class="field"><label>'+esc(t('Tu utilises ComptaPro pour'))+'</label><div class="seg" role="group"><button type="button" data-act="auth.obType" data-id="pme" aria-pressed="true">'+esc(t('Mon entreprise'))+'</button><button type="button" data-act="auth.obType" data-id="cabinet" aria-pressed="false">'+esc(t('Un cabinet comptable'))+'</button></div><span class="fh" id="obHint">'+esc(t('Une comptabilité pour ton entreprise.'))+'</span></div>':'')
  +'<div class="fgrid"><div class="field"><label for="obName" id="obNameL">'+esc(t('Nom de l’entreprise'))+'</label><input class="inp" id="obName" maxlength="60" autocomplete="organization"></div><div class="field"><label for="obCountry">'+esc(t('Pays'))+'</label><select class="inp" id="obCountry">'+cOpts('CI')+'</select></div></div>'
- +'<div class="field"><label>'+esc(t('Point de départ'))+'</label><div class="seg" role="group"><button type="button" data-act="auth.obStart" data-id="empty" aria-pressed="true">'+esc(t('Dossier vide'))+'</button><button type="button" data-act="auth.obStart" data-id="demo" aria-pressed="false">'+esc(t('Avec des données d’exemple'))+'</button></div><span class="fh">'+esc(t('Les données d’exemple servent à découvrir le logiciel : tu pourras les effacer à tout moment.'))+'</span></div>'
+ 
  +'<div class="ferr" id="obErr" hidden></div><div class="row">'+(first?'':'<button class="btn" data-close>'+esc(t('Annuler'))+'</button>')+'<button class="btn primary" data-act="auth.obGo">'+esc(t('Commencer'))+'</button></div>';
  obType='pme';obStart='empty';obFirst=!!first;
  CP.modal(h,'');
@@ -5248,7 +5252,14 @@ async function pushWs(u,w,str){
   }
   sy.h=h;dirty[w.id]=false;I().sv();
   state(Object.keys(dirty).some(function(k){return dirty[k]})?'pending':'synced');
- }catch(e){state('error');setTimeout(function(){C.touch()},20000)}
+ }catch(e){
+  if(e&&/role_forbidden/.test(String(e.message||''))){
+   try{var rr=await sb.from('workspaces').select('data,rev').eq('id',w.id).maybeSingle();
+    if(rr.data){wr(wk(w.id)+'-bak',str);var ss=JSON.stringify(rr.data.data);wr(wk(w.id),ss);sy.rev=rr.data.rev;sy.h=fnv(ss);dirty[w.id]=false;
+     if(CP.U.ws&&CP.U.ws.id===w.id){CP.U.ws=null;A.open(w.id)}}}catch(x){}
+   CP.toast(t('Action non autorisée pour ton rôle : la modification a été annulée.'),'err');state('synced');
+  }else{state('error');setTimeout(function(){C.touch()},20000)}
+ }
  finally{pushing[w.id]=false}
 }
 async function conflict(u,w,str){
@@ -5401,7 +5412,7 @@ ACT['sb.pw']=async function(){
 };
 C.secRow=function(u){return u&&u.sb?'<div class="secrow"><span>'+esc(t('Compte'))+'</span>'+CP.pill('good',t('En ligne · protégé par utilisateur'))+'</div>':''};
 /* ---------- équipe : vraies invitations par e-mail ---------- */
-function dbRole(r){return /admin/i.test(r)?'admin':(/lect|observ|viewer/i.test(r)?'viewer':'editor')}
+function dbRole(r){return CP.roleKey(r)}
 function modChecks(){return CP.NAV.filter(function(n){return n.id!=='dashboard'}).map(function(n){return[n.id,t(n.l)]})}
 ACT['team.invite']=function(){
  var u=user(),w=CP.U.ws,wi=u&&w&&(u.ws||[]).filter(function(x){return x.id===w.id})[0];
@@ -5410,8 +5421,8 @@ ACT['team.invite']=function(){
  if(u.sync[w.id]==null||u.sync[w.id].rev==null)return CP.toast(t('Ton dossier se synchronise : réessaie dans quelques secondes.'),'info');
  CP.form({title:'Inviter un collaborateur',sub:'Il recevra un e-mail avec un lien pour rejoindre ce dossier.',fields:[
   {k:'name',l:'Nom',req:true},{k:'email',l:'E-mail',t:'email',req:true},
-  {k:'role',l:'Rôle',t:'select',o:CP.ROLES.map(function(r){return[r,t(r)]}),v:'Employé',w:true},
-  {k:'mods',l:'Modules accessibles',t:'checks',o:modChecks(),v:CP.ROLE_MODS['Employé'],w:true}],
+  {k:'role',l:'Rôle',t:'select',o:CP.ROLES.map(function(r){return[r,t(r)]}),v:'Caissier / Vendeur',w:true},
+  {k:'mods',l:'Modules accessibles',t:'checks',o:modChecks(),v:CP.ROLE_MODS['Caissier / Vendeur'],w:true}],
   fn:function(v){
    var mail=String(v.email).trim().toLowerCase();
    if(!I().EMAIL.test(mail))return t('Cette adresse e-mail n’est pas valide.');
@@ -5812,6 +5823,7 @@ document.addEventListener('click',function(e){
  if(d.rep){if(d.rep==='view'){CP.U.rep.view=d.v;CP.repRender()}return}
  if(d.read){CP.S.read[d.read]=true}
  if(d.act){
+  if(CP.denyAct&&CP.denyAct(d.act))return;
   var fn=CP.ACT[d.act];if(!fn)return;
   try{fn(d.id,el)}catch(err){console.error(err);CP.toast(t('Oups, une erreur est survenue.'),'err')}
   return;
@@ -5853,4 +5865,226 @@ var h0=location.hash.slice(1);if(CP.V[h0])CP.U.view=h0;
 CP.chrome(true);CP.render(true);CP.idleReset();
 })();
 
+
+/* ===== Sprint 1 : rôles (RBAC), paramètres DGI, journal d'audit serveur, sauvegardes chiffrées ===== */
+(function(){"use strict";
+var CP=window.CP,A=CP.auth,ACT=CP.ACT,V=CP.V,esc=CP.esc,t=function(s){return CP.t(s)},tf=CP.tf,ic=CP.ic,$=CP.$;
+var EN={'Gérant / Admin':'Manager / Admin','Caissier / Vendeur':'Cashier / Seller','Comptable':'Accountant',
+'Ton rôle n’a pas accès à cette rubrique.':'Your role cannot open this section.','Action réservée au Gérant / Admin.':'This action is reserved to the Manager / Admin.',
+'Action non autorisée pour ton rôle : la modification a été annulée.':'Your role is not allowed to do this: the change was cancelled.',
+'Paramètres DGI / FNE':'DGI / FNE settings','Réservé au Gérant / Admin.':'Reserved to the Manager / Admin.','Modifier':'Edit','Paramètres DGI enregistrés':'DGI settings saved',
+'Numéro de compte contribuable (NCC)':'Taxpayer number (NCC)','Régime d’imposition':'Tax regime','Centre des impôts':'Tax office','Code établissement':'Establishment code','Code point de vente':'Point-of-sale code','Mode FNE':'FNE mode',
+'Journal d’audit (serveur)':'Audit log (server)','Aucune action enregistrée pour le moment.':'No action recorded yet.','Création':'Creation','Modification':'Change','Suppression':'Deletion','Encaissement':'Payment received','Validation':'Validation','Certification FNE':'FNE certification','Opération en masse':'Bulk operation',
+'Sauvegarde chiffrée':'Encrypted backup','Télécharger une sauvegarde chiffrée':'Download an encrypted backup','Restaurer une sauvegarde':'Restore a backup','Mot de passe de la sauvegarde':'Backup password','Confirmer le mot de passe':'Confirm password',
+'Les mots de passe ne sont pas identiques.':'The passwords do not match.','10 caractères minimum.':'10 characters minimum.','Sauvegarde téléchargée.':'Backup downloaded.','Mot de passe incorrect ou fichier abîmé.':'Wrong password or damaged file.',
+'Restaurer cette sauvegarde ?':'Restore this backup?','Les données actuelles de ce dossier seront remplacées.':'The current data of this folder will be replaced.','Restaurer':'Restore','Sauvegarde restaurée.':'Backup restored.',
+'Abonnement':'Subscription','Essai':'Trial','Clé de licence':'License key','Voir':'Show'};
+if(CP.EN)Object.keys(EN).forEach(function(k){if(CP.EN[k]==null)CP.EN[k]=EN[k]});
+
+/* ---- rôle de l'utilisateur dans le dossier ouvert ---- */
+CP.myRole=function(){
+ if(!CP.sb)return 'admin';
+ var u=A.user&&A.user(),w=CP.U&&CP.U.ws;
+ if(!u||!u.sb||!w)return 'admin';
+ var wi=(u.ws||[]).filter(function(x){return x.id===w.id})[0];
+ return CP.roleKey(wi&&wi.role);
+};
+CP.isAdmin=function(){return CP.myRole()==='admin'};
+CP.canMod=function(id){
+ var r=CP.myRole();if(r==='admin'||id==='dashboard')return true;
+ return (CP.ROLE_MODS[CP.roleName(r)]||[]).indexOf(id)>-1;
+};
+var P2M={compta:'compta',jr:'compta',etats:'compta',coa:'compta',close:'compta',piece:'compta',tax:'tax',vault:'tax',hr:'hr',exp:'expenses',stock:'stock',sup:'suppliers',proj:'projects',cli:'clients',sales:'sales',bank:'banks',wal:'wallets',momo:'momo',inbox:'inbox',prod:'prod',team:'team',rep:'reports'};
+CP.denyAct=function(a){
+ if(CP.isAdmin())return false;
+ var m=P2M[String(a).split('.')[0]];
+ if(m&&!CP.canMod(m)){CP.toast(t('Ton rôle n’a pas accès à cette rubrique.'),'err');return true}
+ return false;
+};
+var v0=CP.perso&&CP.perso.visible;
+if(v0)CP.perso.visible=function(id){return v0(id)&&CP.canMod(id)};
+var nav0=CP.nav;
+CP.nav=CP.hook.go=function(id,tq){if(!CP.canMod(id)){CP.toast(t('Ton rôle n’a pas accès à cette rubrique.'),'err');return}return nav0.call(this,id,tq)};
+var rn0=CP.render;
+CP.render=function(){if(CP.U&&CP.U.view&&!CP.canMod(CP.U.view))CP.U.view='dashboard';return rn0.apply(this,arguments)};
+var co0=A.companyHtml;
+if(co0)A.companyHtml=function(){return CP.isAdmin()?co0.apply(this,arguments):'<p class="hint">'+esc(t('Réservé au Gérant / Admin.'))+'</p>'};
+
+/* ---- équipe : rôles réels côté serveur ---- */
+function rpc(fn,args){return CP.sb&&CP.sb.client?CP.sb.client.rpc(fn,args):Promise.resolve({})}
+function wsId(){return CP.U&&CP.U.ws&&CP.U.ws.id}
+function needAdmin(){if(CP.isAdmin())return true;CP.toast(t('Action réservée au Gérant / Admin.'),'err');return false}
+function rpcToast(p){p.then(function(r){if(r&&r.error)CP.toast(t('Action non autorisée pour ton rôle : la modification a été annulée.'),'err')})}
+var te=ACT['team.edit'];
+ACT['team.edit']=function(id){
+ if(!needAdmin())return;
+ te(id);
+ var m=CP.by(CP.S.members,id),f=CP._f;if(!m||!f)return;var fn=f.fn;
+ f.fn=function(v){var r=fn(v);if(!r&&CP.sb&&m.email)rpcToast(rpc('set_member_role',{ws:wsId(),mail:m.email,new_role:CP.roleKey(v.role)}));return r};
+};
+var tt=ACT['team.toggle'];
+ACT['team.toggle']=function(id){
+ if(!needAdmin())return;
+ var m=CP.by(CP.S.members,id),was=m&&m.st;tt(id);
+ if(!m||!CP.sb||!m.email)return;
+ if(was==='off'&&m.st==='active')rpcToast(rpc('set_member_active',{ws:wsId(),mail:m.email,on_off:true}));
+ else if(CP._yes){var y=CP._yes;CP._yes=function(){y();rpcToast(rpc('set_member_active',{ws:wsId(),mail:m.email,on_off:false}))}}
+};
+var td=ACT['team.del'];
+ACT['team.del']=function(id){
+ if(!needAdmin())return;
+ var m=CP.by(CP.S.members,id);td(id);
+ if(m&&CP.sb&&m.email&&CP._yes){var y=CP._yes;CP._yes=function(){y();rpcToast(rpc('set_member_active',{ws:wsId(),mail:m.email,on_off:false}))}}
+};
+
+/* ---- paramètres DGI / FNE (Gérant / Admin) ---- */
+var tx0=V.tax;
+if(tx0)V.tax=function(){
+ var h=tx0.apply(this,arguments);
+ if(!CP.isAdmin())return h;
+ var d=(CP.S.company&&CP.S.company.dgi)||{};
+ function r(l,v){return '<div class="set-row"><span>'+esc(t(l))+'</span><b>'+esc(v||'—')+'</b></div>'}
+ return h+CP.card('Paramètres DGI / FNE','<div class="stack">'+r('Numéro de compte contribuable (NCC)',d.ncc)+r('Régime d’imposition',d.regime)+r('Centre des impôts',d.centre)+r('Code établissement',d.etab)+r('Code point de vente',d.pos)+r('Mode FNE',d.mode==='production'?'Production':'Test')+'</div><div class="actions" style="margin-top:12px">'+CP.btn('Modifier','dgi.edit',{k:'primary',i:'edit'})+'</div>');
+};
+ACT['dgi.edit']=function(){
+ if(!needAdmin())return;
+ var d=(CP.S.company&&CP.S.company.dgi)||{};
+ CP.form({title:'Paramètres DGI / FNE',sub:'Ces informations servent à la facture normalisée. La clé secrète FNE ne se saisit jamais ici.',fields:[
+  {k:'ncc',l:'Numéro de compte contribuable (NCC)',v:d.ncc||'',w:true},
+  {k:'regime',l:'Régime d’imposition',t:'select',o:[['RNI','Réel normal (RNI)'],['RSI','Réel simplifié (RSI)'],['IS','Impôt synthétique'],['EX','Exonéré']],v:d.regime||'RNI'},
+  {k:'centre',l:'Centre des impôts',v:d.centre||''},{k:'etab',l:'Code établissement',v:d.etab||''},{k:'pos',l:'Code point de vente',v:d.pos||''},
+  {k:'mode',l:'Mode FNE',t:'select',o:[['test','Test'],['production','Production']],v:d.mode||'test'}],
+  fn:function(v){CP.S.company=CP.S.company||{};CP.S.company.dgi={ncc:v.ncc,regime:v.regime,centre:v.centre,etab:v.etab,pos:v.pos,mode:v.mode};
+   CP.log('Paramètres DGI modifiés');CP.toast(t('Paramètres DGI enregistrés'),'win');CP.refresh()}});
+};
+
+/* ---- journal d'audit serveur (équipe) ---- */
+var AL={create:'Création',update:'Modification','delete':'Suppression',encaissement:'Encaissement',validation:'Validation',certification:'Certification FNE',bulk:'Opération en masse'};
+var tm0=V.team;
+if(tm0)V.team=function(){
+ var h=tm0.apply(this,arguments);
+ if(!CP.sb||!CP.isAdmin())return h;
+ return h+CP.card('Journal d’audit (serveur)','<div id="auditSrv"><div class="empty">…</div></div>');
+};
+function loadAudit(){
+ var el=$('#auditSrv');if(!el||!CP.sb)return;
+ CP.sb.client.from('audit_logs').select('created_at,user_email,user_role,action,table_cible,enregistrement_id').eq('workspace_id',wsId()).order('created_at',{ascending:false}).limit(40).then(function(r){
+  var e=$('#auditSrv');if(!e)return;
+  var rows=(r&&r.data)||[];
+  if(!rows.length){e.innerHTML='<div class="empty">'+esc(t('Aucune action enregistrée pour le moment.'))+'</div>';return}
+  e.innerHTML='<div class="stack">'+rows.map(function(a){var d=new Date(a.created_at);
+   return '<div class="alert"><span class="ico w">'+ic('clock',16)+'</span><div class="body"><b>'+esc(t(AL[a.action]||a.action))+' · '+esc(a.table_cible)+(a.enregistrement_id?' · '+esc(a.enregistrement_id):'')+'</b><span>'+esc(a.user_email||'—')+' ('+esc(t(CP.roleName(a.user_role||'')))+') · '+d.toLocaleDateString(CP.loc())+' '+d.toLocaleTimeString(CP.loc(),{hour:'2-digit',minute:'2-digit'})+'</span></div></div>'}).join('')+'</div>';
+ });
+}
+var at0=CP.AFTER.team;CP.AFTER.team=function(){if(at0)at0();loadAudit()};
+
+/* ---- abonnement (lecture) ---- */
+CP.sub=null;var lastWs=null;
+function loadSub(){
+ if(!CP.sb||!wsId())return;
+ CP.sb.client.from('subscriptions').select('plan_type,status,expires_at,max_users').eq('workspace_id',wsId()).maybeSingle().then(function(r){CP.sub=r&&r.data||null;
+  if(CP.sub&&CP.sub.expires_at){var d=Math.ceil((Date.parse(CP.sub.expires_at)-Date.now())/864e5);if(d<=7&&d>=0)CP.toast(tf('Ton abonnement expire dans {0} jour(s).',d),'info')}});
+}
+setInterval(function(){var w=wsId()||null;if(w!==lastWs){lastWs=w;CP.sub=null;loadSub()}},4000);
+ACT['lic.show']=function(){
+ if(!needAdmin())return;
+ rpc('my_license',{ws:wsId()}).then(function(r){CP.textModal(t('Clé de licence'),(r&&r.data)||'—','')});
+};
+var PL={trial:'Essai',starter:'Starter',pro:'Pro',cabinet:'Cabinet',enterprise:'Entreprise'};
+function subHtml(){
+ if(!CP.sb||!CP.sub)return '';
+ var e=CP.sub.expires_at?new Date(CP.sub.expires_at).toLocaleDateString(CP.loc()):'—';
+ return '<div class="set-row"><span>'+esc(t('Abonnement'))+'<small>'+esc(tf('Jusqu’au {0} · {1} utilisateurs max.',e,CP.sub.max_users))+'</small></span><b>'+esc(t(PL[CP.sub.plan_type]||CP.sub.plan_type))+'</b></div>'+(CP.isAdmin()?'<div class="actions"><button class="btn sm" data-act="lic.show">'+esc(t('Clé de licence'))+' · '+esc(t('Voir'))+'</button></div>':'');
+}
+
+/* ---- sauvegardes chiffrées (fichier) + copies locales automatiques ---- */
+var enc=new TextEncoder(),dec=new TextDecoder();
+function b64e(buf){var b=new Uint8Array(buf),s='',i;for(i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(s)}
+function b64d(s){var b=atob(s),u=new Uint8Array(b.length),i;for(i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u}
+function gz(u8){if(!window.CompressionStream)return Promise.resolve({d:u8,z:false});var s=new Blob([u8]).stream().pipeThrough(new CompressionStream('gzip'));return new Response(s).arrayBuffer().then(function(b){return{d:new Uint8Array(b),z:true}})}
+function gunz(u8,z){if(!z)return Promise.resolve(u8);var s=new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'));return new Response(s).arrayBuffer().then(function(b){return new Uint8Array(b)})}
+function pkey(pass,salt,it){return crypto.subtle.importKey('raw',enc.encode(pass),'PBKDF2',false,['deriveKey']).then(function(k){return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:it,hash:'SHA-256'},k,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])})}
+function snapshotObj(){var w=CP.U.ws||{};return{app:'ComptaPro',v:1,at:new Date().toISOString(),ws:{id:w.id||'',name:w.name||''},state:CP.S}}
+function encryptWith(key,obj,meta){
+ var iv=crypto.getRandomValues(new Uint8Array(12));
+ return gz(enc.encode(JSON.stringify(obj))).then(function(g){return crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,g.d).then(function(ct){return Object.assign({iv:b64e(iv),z:g.z,ct:b64e(ct)},meta)})});
+}
+function download(name,text){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500)}
+function stamp(){var d=new Date();return d.toISOString().slice(0,10)}
+ACT['bk.export']=function(){
+ if(!CP.U.ws)return;
+ CP.form({title:'Sauvegarde chiffrée',sub:'Le fichier est chiffré (AES-256). Sans ce mot de passe, personne ne peut le lire, pas même nous. Note-le bien.',fields:[
+  {k:'p1',l:'Mot de passe de la sauvegarde',t:'password',req:true,w:true},{k:'p2',l:'Confirmer le mot de passe',t:'password',req:true,w:true}],
+  fn:function(v){
+   if(v.p1.length<10)return t('10 caractères minimum.');
+   if(v.p1!==v.p2)return t('Les mots de passe ne sont pas identiques.');
+   var salt=crypto.getRandomValues(new Uint8Array(16)),it=310000;
+   pkey(v.p1,salt,it).then(function(k){return encryptWith(k,snapshotObj(),{app:'ComptaPro-backup',v:1,kdf:'PBKDF2-SHA256',it:it,salt:b64e(salt)})}).then(function(o){
+    download('ComptaPro-sauvegarde-'+stamp()+'.cpbak',JSON.stringify(o));CP.toast(t('Sauvegarde téléchargée.'),'win')});
+  }});
+};
+function applyState(obj,label){
+ CP.confirm({title:t('Restaurer cette sauvegarde ?'),text:t('Les données actuelles de ce dossier seront remplacées.')+(label?' ('+label+')':''),yes:t('Restaurer'),danger:true,fn:function(){
+  var cur=JSON.stringify(CP.S);try{localStorage.setItem('cp-before-restore',cur)}catch(e){}
+  Object.keys(CP.S).forEach(function(k){delete CP.S[k]});Object.assign(CP.S,obj.state);
+  CP.closeModal();CP.refresh();CP.toast(t('Sauvegarde restaurée.'),'win')}});
+}
+ACT['bk.import']=function(){
+ var i=document.createElement('input');i.type='file';i.accept='.cpbak,application/json';
+ i.onchange=function(){var f=i.files&&i.files[0];if(!f)return;f.text().then(function(txt){
+  var o;try{o=JSON.parse(txt)}catch(e){return CP.toast(t('Mot de passe incorrect ou fichier abîmé.'),'err')}
+  if(!o||o.app!=='ComptaPro-backup')return CP.toast(t('Mot de passe incorrect ou fichier abîmé.'),'err');
+  CP.form({title:'Restaurer une sauvegarde',fields:[{k:'p',l:'Mot de passe de la sauvegarde',t:'password',req:true,w:true}],fn:function(v){
+   pkey(v.p,b64d(o.salt),o.it).then(function(k){return crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(o.iv)},k,b64d(o.ct))}).then(function(b){return gunz(new Uint8Array(b),o.z)}).then(function(u){
+    var obj=JSON.parse(dec.decode(u));setTimeout(function(){applyState(obj,obj.at&&obj.at.slice(0,10))},50)
+   }).catch(function(){CP.toast(t('Mot de passe incorrect ou fichier abîmé.'),'err')});}});
+ })};i.click();
+};
+/* copies locales automatiques : 1 par jour et par dossier, 7 jours gardés, chiffrées avec une clé propre à l'appareil */
+var DB=null;
+function idb(){
+ if(DB)return DB;
+ DB=new Promise(function(ok,ko){var r=indexedDB.open('cp-backup',1);r.onupgradeneeded=function(){r.result.createObjectStore('snaps',{keyPath:'k'});r.result.createObjectStore('dk')};r.onsuccess=function(){ok(r.result)};r.onerror=function(){ko(r.error)}});
+ return DB;
+}
+function tx(store,mode,fn){return idb().then(function(db){return new Promise(function(ok,ko){var q=db.transaction(store,mode),s=q.objectStore(store),r=fn(s);q.oncomplete=function(){ok(r&&r.result)};q.onerror=function(){ko(q.error)}})})}
+function devKey(){
+ return tx('dk','readonly',function(s){return s.get('k')}).then(function(k){if(k)return k;
+  return crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']).then(function(nk){return tx('dk','readwrite',function(s){return s.put(nk,'k')}).then(function(){return nk})})});
+}
+function metaGet(){try{return JSON.parse(localStorage.getItem('cp-bk-meta')||'[]')}catch(e){return[]}}
+function metaSet(m){try{localStorage.setItem('cp-bk-meta',JSON.stringify(m))}catch(e){}}
+CP.bkSnapshot=function(force){
+ var w=CP.U&&CP.U.ws;if(!w||!CP.S||!window.indexedDB||!crypto.subtle)return Promise.resolve(false);
+ var k=w.id+'|'+stamp(),meta=metaGet();
+ if(!force&&meta.some(function(x){return x.k===k}))return Promise.resolve(false);
+ return devKey().then(function(dk){return encryptWith(dk,snapshotObj(),{})}).then(function(o){
+  return tx('snaps','readwrite',function(s){return s.put({k:k,ws:w.id,day:stamp(),o:o})}).then(function(){
+   meta=metaGet().filter(function(x){return x.k!==k});meta.push({k:k,ws:w.id,day:stamp(),at:Date.now()});
+   var mine=meta.filter(function(x){return x.ws===w.id}).sort(function(a,b){return a.day<b.day?1:-1}),drop=mine.slice(7);
+   meta=meta.filter(function(x){return drop.indexOf(x)<0});metaSet(meta);
+   return Promise.all(drop.map(function(x){return tx('snaps','readwrite',function(s){return s.delete(x.k)})})).then(function(){return true});
+  })}).catch(function(){return false});
+};
+ACT['bk.snapnow']=function(){CP.bkSnapshot(true).then(function(ok){CP.toast(ok?t('Sauvegarde téléchargée.').replace(/télécharg\w+/,'enregistrée'):'—',ok?'win':'err');if(ok&&CP.U.settingsOpen!==false){var el=$('#bkList');if(el)el.innerHTML=snapList()}})};
+ACT['bk.snap']=function(id){
+ tx('snaps','readonly',function(s){return s.get(id)}).then(function(rec){if(!rec)return;
+  return devKey().then(function(dk){return crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(rec.o.iv)},dk,b64d(rec.o.ct))}).then(function(b){return gunz(new Uint8Array(b),rec.o.z)}).then(function(u){
+   var obj=JSON.parse(dec.decode(u));CP.closeModal&&0;applyState(obj,rec.day)})}).catch(function(){CP.toast(t('Mot de passe incorrect ou fichier abîmé.'),'err')});
+};
+function snapList(){
+ var w=CP.U&&CP.U.ws,m=metaGet().filter(function(x){return w&&x.ws===w.id}).sort(function(a,b){return a.day<b.day?1:-1});
+ if(!m.length)return '<small class="hint">—</small>';
+ return m.map(function(x){return '<div class="set-row"><span>'+esc(new Date(x.at).toLocaleString(CP.loc()))+'</span><button class="btn sm" data-act="bk.snap" data-id="'+esc(x.k)+'">'+esc(t('Restaurer'))+'</button></div>'}).join('');
+}
+var sec0=A.securityHtml;
+if(sec0)A.securityHtml=function(){
+ var h=sec0.apply(this,arguments);
+ var body='<p class="hint">'+esc(t('Une copie chiffrée est gardée automatiquement chaque jour sur cet appareil (7 jours).'))+'</p><div id="bkList">'+snapList()+'</div><div class="actions"><button class="btn sm" data-act="bk.export">'+esc(t('Télécharger une sauvegarde chiffrée'))+'</button><button class="btn sm" data-act="bk.import">'+esc(t('Restaurer une sauvegarde'))+'</button><button class="btn sm" data-act="bk.snapnow">'+esc(t('Copie locale maintenant'))+'</button></div>';
+ return h+'<div class="set-sub"><h4>'+esc(t('Sauvegarde chiffrée'))+'</h4>'+body+subHtml()+'</div>';
+};
+if(CP.EN){CP.EN['Une copie chiffrée est gardée automatiquement chaque jour sur cet appareil (7 jours).']='An encrypted copy is kept automatically every day on this device (7 days).';CP.EN['Copie locale maintenant']='Local copy now';CP.EN['Ton abonnement expire dans {0} jour(s).']='Your subscription expires in {0} day(s).';CP.EN['Jusqu’au {0} · {1} utilisateurs max.']='Until {0} · {1} users max.'}
+setTimeout(function(){CP.bkSnapshot(false)},15000);
+setInterval(function(){CP.bkSnapshot(false)},30*60*1000);
+})();
 </script>
