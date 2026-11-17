@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>ComptaPro</title>
 <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
@@ -1318,7 +1319,7 @@ CP.pdfWrap=function(s,maxW,size,bold){
 function col(c){c=c||'#000000';var m=/^#?([0-9a-f]{6})$/i.exec(c);if(!m)return '0 0 0';var n=parseInt(m[1],16);return [(n>>16)&255,(n>>8)&255,n&255].map(function(x){return (x/255).toFixed(3)}).join(' ')}
 function f2(n){return (Math.round(n*100)/100).toString()}
 CP.pdfNew=function(info){
- var H=842,Wd=595,pages=[],att=[];
+ var H=info.h||842,Wd=info.w||595,pages=[],att=[];
  function Page(){this.o=[]}
  Page.prototype.text=function(x,y,s,o){
   o=o||{};s=String(s);var sz=o.s||10,w=CP.pdfW(s,sz,o.b);
@@ -1682,7 +1683,7 @@ CP.EMPTY=function(){
 
 /* ---------- Calculs partagés ---------- */
 CP.sum=function(arr,fn){return arr.reduce(function(s,x){return s+fn(x)},0)};
-CP.invSt=function(i){if(i.type==='quote')return'quote';if(i.st==='paid')return'paid';return i.due<CP.today()?'late':'pending'};
+CP.invSt=function(i){if(i.type==='quote')return'quote';if(i.type==='credit')return'credit';if(i.st==='paid')return'paid';return i.due<CP.today()?'late':'pending'};
 CP.entSt=function(e){return e.d!==e.c?'unbalanced':e.st};
 CP.prodDone=function(o){var k=[0,.4,.8,1][o.step];return o.step===3?Math.round(o.plan*(1-o.loss/100)):Math.round(o.plan*k)};
 CP.net=function(e){return e.gross+e.bonus-e.ded};
@@ -2276,15 +2277,15 @@ V.sales=function(){
  var S=CP.S,k=CP.kpi(),h='';
  h+=CP.head('sales','Devis, commandes, bons de livraison et factures. Les relances se préparent en un clic.',CP.btn('Télécharger le lot','sales.zipMonth',{i:'download'})+CP.btn('Nouveau devis','sales.newq',{i:'plus'})+CP.btn('Nouvelle commande','sales.newo',{i:'cart'})+CP.btn('Créer une facture','sales.new',{k:'primary',i:'receipt'}));
  h+='<div class="tiles">'+CP.tile('up','','Chiffre d’affaires (30 j)',CP.mEl(k.rev),'','up')+CP.tile('cal','w','En attente',CP.mEl(k.pend),tf('{0} factures',k.nPend),'warn')+CP.tile('alert','c','Impayées',CP.mEl(k.late),tf('{0} factures',k.nLate),'down')+CP.tile('receipt','v','Devis ouverts','<span>'+S.inv.filter(function(i){return i.type==='quote'}).length+'</span>')+'</div>';
- var lab={paid:['good','Payée'],pending:['warn','En attente'],late:['crit','Impayée'],quote:['info','Devis']};
+ var lab={paid:['good','Payée'],pending:['warn','En attente'],late:['crit','Impayée'],quote:['info','Devis'],credit:['info','Avoir']};
  h+=CP.card('Factures et devis',CP.table('sales',{
   sort:['date',-1],empty:'Aucune facture pour l’instant. Crée la première !',
   rows:function(){return S.inv},
   chips:[['all','Toutes'],['paid','Payées'],['pending','En attente'],['late','Impayées'],['quote','Devis']],
   chip:function(r,v){return CP.invSt(r)===v},
   cols:[{k:'id',l:'N°',f:function(r){return '<b>'+esc(r.id)+'</b>'}},{k:'client',l:'Client'},{k:'date',l:'Date',t:'date'},{k:'due',l:'Échéance',t:'date'},{k:'amount',l:'Montant',t:'money'},
-   {k:'st',l:'Statut',v:function(r){return t(lab[CP.invSt(r)][1])},f:function(r){var s=CP.invSt(r);return CP.pill(lab[s][0],t(lab[s][1])+(s==='late'?' · '+tf('{0} j',CP.diff(r.due,CP.today())):''))}}],
-  act:function(r){var s=CP.invSt(r),a=[];a.push(['sales.view','eye','Aperçu']);a.push(['sales.pdf','download','Télécharger le PDF']);if(s==='quote'){a.push(['sales.toOrder','cart','Transformer en commande']);a.push(['sales.conv','receipt','Convertir en facture'])}else if(s!=='paid'){a.push(['sales.pay','check','Marquer payée']);a.push(['sales.mail','send','Envoyer par e-mail']);if(s==='late')a.push(['sales.remind','send','Relancer'])}a.push(['sales.del','trash','Supprimer',1]);return a}
+   {k:'st',l:'Statut',v:function(r){return t(lab[CP.invSt(r)][1])},f:function(r){var s=CP.invSt(r);return CP.pill(lab[s][0],t(lab[s][1])+(s==='late'?' · '+tf('{0} j',CP.diff(r.due,CP.today())):''))+(CP.fneBadge?CP.fneBadge(r):'')}}],
+  act:function(r){var s=CP.invSt(r),a=[];a.push(['sales.view','eye','Aperçu']);a.push(['sales.pdf','download','Télécharger le PDF']);if(CP.fneActs)CP.fneActs(r,a);if(s==='quote'){a.push(['sales.toOrder','cart','Transformer en commande']);a.push(['sales.conv','receipt','Convertir en facture'])}else if(s!=='paid'){a.push(['sales.pay','check','Marquer payée']);a.push(['sales.mail','send','Envoyer par e-mail']);if(s==='late')a.push(['sales.remind','send','Relancer'])}if(!(CP.fne&&CP.fne.held(r)))a.push(['sales.del','trash','Supprimer',1]);return a}
  }));
  h+=CP.docsCard();
  return h;
@@ -3781,10 +3782,11 @@ function coMentions(){
  return a;
 }
 function invLines(inv){
+ if(inv.items&&inv.items.length)return inv.items.map(function(x){return[x.d,x.q,x.pu]});
  if(inv.lines&&inv.lines.length)return inv.lines;
  var s=CP.splitTTC(inv.amount);return [[inv.desc||('Prestations et marchandises – '+inv.id),1,s.ht]];
 }
-function invCalc(inv){var s=CP.splitTTC(Math.abs(inv.amount));return{ht:s.ht,tva:s.tva,ttc:Math.abs(inv.amount)}}
+function invCalc(inv){if(inv.items&&inv.items.length){var T=CP.itemTotals(inv.items);return{ht:T.ht,tva:T.tva,ttc:T.ttc}}var s=CP.splitTTC(Math.abs(inv.amount));return{ht:s.ht,tva:s.tva,ttc:Math.abs(inv.amount)}}
 function canon(inv){var c=invCalc(inv);return [CP.invNum(inv.id),inv.date,inv.client,c.ht,c.tva,c.ttc,co().ifu||co().nif||''].join('|')}
 
 /* ---------- XML Factur-X (profil MINIMUM, syntaxe CII) ---------- */
@@ -3811,6 +3813,7 @@ function drawDoc(d,m){
  P.text(W-X,y+28,'N° '+m.no,{s:10,b:1,a:'r',c:ink});
  P.text(W-X,y+41,'Date : '+CP.dfmt(m.date),{s:9,a:'r',c:mut});
  if(m.due)P.text(W-X,y+53,'Échéance : '+CP.dfmt(m.due),{s:9,a:'r',c:mut});
+ if(m.origin)P.text(W-X,y+65,'Avoir sur facture : '+m.origin,{s:9,a:'r',c:mut});
  y=150;
  P.rect(X,y,240,64,{s:'#E2E8F0',f:'#F8FAFC'});
  P.text(X+10,y+16,m.kind==='sale'?'FACTURÉ À':'DESTINATAIRE',{s:7.5,b:1,c:mut});
@@ -3830,7 +3833,7 @@ function drawDoc(d,m){
  });
  y+=16;var bx=W-X-200;
  P.text(bx,y,'Total HT',{s:9.5,c:mut});P.text(W-X-10,y,CP.num(m.ht)+' FCFA',{s:9.5,a:'r',c:ink});y+=16;
- P.text(bx,y,'TVA ('+CP.VATR()+' %)',{s:9.5,c:mut});P.text(W-X-10,y,CP.num(m.tva)+' FCFA',{s:9.5,a:'r',c:ink});y+=8;
+ P.text(bx,y,m.mixed?'TVA':'TVA ('+CP.VATR()+' %)',{s:9.5,c:mut});P.text(W-X-10,y,CP.num(m.tva)+' FCFA',{s:9.5,a:'r',c:ink});y+=8;
  P.line(bx,y,W-X,y,{c:'#0F172A',lw:.8});y+=18;
  P.text(bx,y,'Total TTC',{s:12,b:1,c:ink});P.text(W-X-10,y,CP.num(m.ttc)+' FCFA',{s:12,b:1,a:'r',c:ink});
  /* pied : mentions, verrouillage, QR */
@@ -3838,10 +3841,11 @@ function drawDoc(d,m){
  if(m.kind==='sale'){
   P.text(X,fy,'Mentions légales : '+coMentions().join(' – '),{s:7.5,c:mut});
   P.text(X,fy+12,'Règlement à l’échéance. Pénalités de retard et indemnité de recouvrement selon les conditions générales de vente.',{s:7.5,c:mut});
-  P.text(X,fy+28,m.locked?'Facture validée et verrouillée – toute modification est impossible.':'Document non verrouillé (devis ou brouillon).',{s:8,b:1,c:m.locked?'#16A34A':mut});
+  P.text(X,fy+28,m.locked?'Facture certifiée et verrouillée – toute modification est impossible.':'Document non verrouillé (devis ou brouillon).',{s:8,b:1,c:m.locked?'#16A34A':mut});
   if(m.hash)P.text(X,fy+40,'Empreinte SHA-256 : '+m.hash.slice(0,32),{s:7,c:mut}),P.text(X,fy+50,m.hash.slice(32),{s:7,c:mut});
-  P.text(X,fy+66,'Code de contrôle fiscal (démonstration) : non certifié par la DGI tant que le module de certification n’est pas raccordé.',{s:7,c:mut});
-  P.qr(W-X-92,fy-2,92,m.qrText);
+  if(m.fne){P.text(X,fy+66,'FACTURE NORMALISÉE ÉLECTRONIQUE – certifiée par la DGI · N° de série DGI : '+m.fne.fne_reference,{s:7.5,b:1,c:'#16A34A'});P.text(X,fy+78,'NCC émetteur : '+(m.nccIssuer||'')+' · Certifiée le '+CP.dfmt(String(m.fne.fne_certified_at).slice(0,10)),{s:7,c:mut});P.text(X,fy+88,'Vérification : scanner le QR code (portail officiel de la DGI).',{s:7,c:mut});P.qr(W-X-92,fy-2,92,m.qrText)}
+  else if(m.queued){P.text(X,fy+66,'REÇU PROVISOIRE – EN ATTENTE DE CERTIFICATION FNE (pas de connexion internet).',{s:7.5,b:1,c:'#B45309'});P.text(X,fy+78,'Sans QR code ni valeur fiscale : la facture normalisée sera émise dès le retour de la connexion.',{s:7,c:mut})}
+  else P.text(X,fy+66,'DOCUMENT NON CERTIFIÉ – sans valeur de facture normalisée tant que la DGI (FNE) ne l’a pas certifié.',{s:7.5,b:1,c:'#B45309'});
  }else{
   P.text(X,fy,'Pièce justificative reconstituée par ComptaPro à partir de la saisie – destinataire : '+recv+'.',{s:7.5,c:mut});
   if(m.hash)P.text(X,fy+14,'Empreinte SHA-256 : '+m.hash.slice(0,32)+m.hash.slice(32),{s:6.5,c:mut});
@@ -3852,9 +3856,10 @@ function saleModel(inv){
  var c=invCalc(inv);
  return CP.sha(canon(inv)).then(function(h){
   var no=CP.invNum(inv.id),q=['FAC',no,co().ifu||co().nif||'',c.ttc+'XOF',inv.date,h.slice(0,16)].join('|');
-  return{kind:'sale',title:inv.type==='quote'?'DEVIS':'FACTURE',no:no,date:inv.date,due:inv.due,party:inv.client,lines:invLines(inv),ht:c.ht,tva:c.tva,ttc:c.ttc,hash:h,locked:inv.type!=='quote'&&inv.lock!==false,qrText:q};
+  return{kind:'sale',title:(CP.fne&&CP.fne.queued(inv))?'REÇU PROVISOIRE':(inv.type==='quote'?'DEVIS':(inv.type==='credit'?'FACTURE D’AVOIR':'FACTURE')),no:no,date:inv.date,due:inv.due,party:inv.client,lines:invLines(inv),ht:c.ht,tva:c.tva,ttc:c.ttc,hash:h,locked:!!(CP.fne&&CP.fne.certified(inv)),qrText:(CP.fne&&CP.fne.certified(inv))?CP.fne.row(inv).fne_qr_url:q,fne:(CP.fne&&CP.fne.certified(inv))?CP.fne.row(inv):null,nccIssuer:(CP.fne&&CP.fne.cred)?CP.fne.cred.ncc:'',origin:inv.origin||'',mixed:!!inv.items,queued:!!(CP.fne&&CP.fne.queued(inv))};
  });
 }
+CP._x={saleModel:saleModel,co:co,coMentions:coMentions};
 CP.invPdf=function(inv,fx){
  return saleModel(inv).then(function(m){
   var d=CP.pdfNew({title:m.title+' '+m.no,author:co().name||'ComptaPro',subject:inv.client});
@@ -3875,11 +3880,11 @@ CP.purPdf=function(p){
 /* ---------- Aperçu HTML (papier) ---------- */
 function paperSale(inv){
  var c=invCalc(inv),ls=invLines(inv);
- return '<div class="paper"><div class="pp-h"><div><b class="pp-co">'+esc(co().name||'')+'</b>'+coMentions().map(function(l){return '<small>'+esc(l)+'</small>'}).join('')+'</div><div class="pp-r"><b class="pp-t">'+esc(inv.type==='quote'?'DEVIS':'FACTURE')+'</b><b>N° '+esc(CP.invNum(inv.id))+'</b><small>'+esc(CP.dfmt(inv.date))+(inv.due?' · '+esc(t('Échéance'))+' '+esc(CP.dfmt(inv.due)):'')+'</small></div></div>'
+ return '<div class="paper"><div class="pp-h"><div><b class="pp-co">'+esc(co().name||'')+'</b>'+coMentions().map(function(l){return '<small>'+esc(l)+'</small>'}).join('')+'</div><div class="pp-r"><b class="pp-t">'+esc(inv.type==='quote'?'DEVIS':(inv.type==='credit'?'FACTURE D’AVOIR':'FACTURE'))+'</b><b>N° '+esc(CP.invNum(inv.id))+'</b><small>'+esc(CP.dfmt(inv.date))+(inv.due?' · '+esc(t('Échéance'))+' '+esc(CP.dfmt(inv.due)):'')+'</small></div></div>'
   +'<div class="pp-to"><small>'+esc(t('Facturé à'))+'</small><b>'+esc(inv.client)+'</b></div>'
   +'<table class="pp-tb"><thead><tr><th>'+esc(t('Désignation'))+'</th><th class="num">'+esc(t('Qté'))+'</th><th class="num">'+esc(t('PU HT'))+'</th><th class="num">'+esc(t('Total HT'))+'</th></tr></thead><tbody>'+ls.map(function(l){return '<tr><td>'+esc(l[0])+'</td><td class="num">'+(l[1]||1)+'</td><td class="num">'+CP.num(l[2]||0)+'</td><td class="num">'+CP.num(Math.round((l[1]||1)*(l[2]||0)))+'</td></tr>'}).join('')+'</tbody></table>'
-  +'<div class="pp-tot"><span>'+esc(t('Total HT'))+'<b>'+money(c.ht)+'</b></span><span>'+esc(t('TVA'))+' '+CP.VATR()+' %<b>'+money(c.tva)+'</b></span><span class="big">'+esc(t('Total TTC'))+'<b>'+money(c.ttc)+'</b></span></div>'
-  +'<p class="pp-lock">'+(inv.type!=='quote'&&inv.lock!==false?ic('lock',13)+esc(t('Facture validée et verrouillée')):esc(t('Devis non verrouillé')))+'</p></div>';
+  +'<div class="pp-tot"><span>'+esc(t('Total HT'))+'<b>'+money(c.ht)+'</b></span><span>'+esc(t('TVA'))+(inv.items?'':' '+CP.VATR()+' %')+'<b>'+money(c.tva)+'</b></span><span class="big">'+esc(t('Total TTC'))+'<b>'+money(c.ttc)+'</b></span></div>'
+  +(CP.fnePaper?CP.fnePaper(inv):'')+'</div>';
 }
 function paperPurchase(p){
  var g=p.gen;if(!g)return '';
@@ -3935,7 +3940,7 @@ document.addEventListener('click',function(e){
 /* ---------- Aperçu latéral (facture / pièce) ---------- */
 function viewInv(inv){
  CP.modal('<h2>'+esc(tf('Aperçu – {0}',CP.invNum(inv.id)))+'</h2><p class="sub mono">'+esc(CP.invFile(inv,'pdf'))+'</p>'+paperSale(inv)
-  +'<div class="row wrap"><button class="btn" data-close>'+esc(t('Fermer'))+'</button><button class="btn" data-act="sales.fx" data-id="'+esc(inv.id)+'">'+ic('shield',16)+esc(t('Factur-X'))+'</button><button class="btn primary" data-act="sales.pdf" data-id="'+esc(inv.id)+'">'+ic('download',16)+esc(t('Télécharger le PDF'))+'</button></div>','xwide');
+  +'<div class="row wrap"><button class="btn" data-close>'+esc(t('Fermer'))+'</button>'+(CP.fneBtns?CP.fneBtns(inv):'')+'<button class="btn" data-act="sales.fx" data-id="'+esc(inv.id)+'">'+ic('shield',16)+esc(t('Factur-X'))+'</button><button class="btn primary" data-act="sales.pdf" data-id="'+esc(inv.id)+'">'+ic('download',16)+esc(t('Télécharger le PDF'))+'</button></div>','xwide');
 }
 function viewPiece(p){
  var ent=p.ent?by(CP.S.entries,p.ent):null;
@@ -5253,11 +5258,11 @@ async function pushWs(u,w,str){
   sy.h=h;dirty[w.id]=false;I().sv();
   state(Object.keys(dirty).some(function(k){return dirty[k]})?'pending':'synced');
  }catch(e){
-  if(e&&/role_forbidden/.test(String(e.message||''))){
+  if(e&&/role_forbidden|fne_locked/.test(String(e.message||''))){
    try{var rr=await sb.from('workspaces').select('data,rev').eq('id',w.id).maybeSingle();
     if(rr.data){wr(wk(w.id)+'-bak',str);var ss=JSON.stringify(rr.data.data);wr(wk(w.id),ss);sy.rev=rr.data.rev;sy.h=fnv(ss);dirty[w.id]=false;
      if(CP.U.ws&&CP.U.ws.id===w.id){CP.U.ws=null;A.open(w.id)}}}catch(x){}
-   CP.toast(t('Action non autorisée pour ton rôle : la modification a été annulée.'),'err');state('synced');
+   CP.toast(/fne_locked/.test(String(e.message||''))?t('Facture certifiée : modification refusée par la base, la version serveur a été rechargée.'):t('Action non autorisée pour ton rôle : la modification a été annulée.'),'err');state('synced');
   }else{state('error');setTimeout(function(){C.touch()},20000)}
  }
  finally{pushing[w.id]=false}
@@ -5944,7 +5949,7 @@ if(tx0)V.tax=function(){
  if(!CP.isAdmin())return h;
  var d=(CP.S.company&&CP.S.company.dgi)||{};
  function r(l,v){return '<div class="set-row"><span>'+esc(t(l))+'</span><b>'+esc(v||'—')+'</b></div>'}
- return h+CP.card('Paramètres DGI / FNE','<div class="stack">'+r('Numéro de compte contribuable (NCC)',d.ncc)+r('Régime d’imposition',d.regime)+r('Centre des impôts',d.centre)+r('Code établissement',d.etab)+r('Code point de vente',d.pos)+r('Mode FNE',d.mode==='production'?'Production':'Test')+'</div><div class="actions" style="margin-top:12px">'+CP.btn('Modifier','dgi.edit',{k:'primary',i:'edit'})+'</div>');
+ return h+(CP.fneCard?CP.fneCard():'');
 };
 ACT['dgi.edit']=function(){
  if(!needAdmin())return;
@@ -6087,4 +6092,584 @@ if(CP.EN){CP.EN['Une copie chiffrée est gardée automatiquement chaque jour sur
 setTimeout(function(){CP.bkSnapshot(false)},15000);
 setInterval(function(){CP.bkSnapshot(false)},30*60*1000);
 })();
+
+/* ===== Sprint 2 : FNE (DGI) — certification, verrouillage, avoir, ticket 80 mm ===== */
+(function(){"use strict";
+var CP=window.CP,A=CP.auth,ACT=CP.ACT,V=CP.V,esc=CP.esc,t=function(s){return CP.t(s)},tf=CP.tf,ic=CP.ic,$=CP.$,by=CP.by;
+var X=CP._x||{};
+var TAX={TVA:18,TVAB:9,TVAC:0,TVAD:0};
+var TAXL=[['TVA','TVA 18 %'],['TVAB','TVA réduite 9 %'],['TVAC','Exonéré (convention)'],['TVAD','Exonéré (légal)']];
+var PAYL=[['cash','Espèces'],['mobile-money','Mobile Money'],['card','Carte bancaire'],['check','Chèque'],['transfer','Virement'],['deferred','À crédit (différé)']];
+var CTL=[['B2C','Particulier (B2C)'],['B2B','Entreprise (B2B)'],['B2G','Administration (B2G)'],['B2F','Étranger (B2F)']];
+var LOCKFREE={st:1,rem:1,paidAt:1};   /* seuls champs modifiables après certification (comme le déclencheur SQL) */
+
+/* ---------- état FNE (lu depuis la base ; jamais écrit par le navigateur) ---------- */
+var F=CP.fne={map:{},cred:null,loadedFor:null};
+function sbc(){return CP.sb&&CP.sb.client}
+function wsId(){return CP.U&&CP.U.ws&&CP.U.ws.id}
+F.online=function(){var u=A.user&&A.user();return !!(sbc()&&u&&!u.guest&&wsId())};
+F.row=function(inv){return inv&&F.map[inv.id]||null};
+F.certified=function(inv){var r=F.row(inv);return !!(r&&r.fne_status==='certified')};
+F.locked=function(inv){var r=F.row(inv);return !!(r&&(r.fne_status==='certified'||r.fne_status==='pending'))};
+F.load=function(){
+ if(!F.online())return Promise.resolve();
+ var w=wsId(),c=sbc();
+ return Promise.all([
+  c.from('fne_invoices').select('invoice_id,kind,parent_invoice_id,fne_status,fne_reference,fne_qr_url,fne_certified_at,fne_amount,fne_vat,balance_sticker,environment,error_message').eq('workspace_id',w),
+  c.from('fne_credentials').select('ncc,environment,production_url,point_of_sale,establishment,has_token,token_last4,updated_at').eq('workspace_id',w).maybeSingle()
+ ]).then(function(r){
+  if(wsId()!==w)return;
+  var m={};((r[0]&&r[0].data)||[]).forEach(function(x){m[x.invoice_id]=x});
+  F.map=m;F.cred=(r[1]&&r[1].data)||null;F.loadedFor=w;lockAll();
+ }).catch(function(){});
+};
+/* verrouillage côté code : un objet certifié ne peut plus changer (sauf statut de paiement) */
+function lockObj(o){
+ if(!o||o.__fl)return;
+ Object.keys(o).forEach(function(k){
+  if(LOCKFREE[k])return;
+  try{var v=o[k];Object.defineProperty(o,k,{value:v,writable:false,configurable:false,enumerable:true})}catch(e){}
+ });
+ try{Object.defineProperty(o,'__fl',{value:1,enumerable:false})}catch(e){}
+}
+F.queued=function(inv){return !!(CP.fneQ&&inv&&!F.certified(inv)&&CP.fneQ.waiting(inv.id))};
+F.held=function(inv){return F.locked(inv)||F.queued(inv)};
+function lockAll(){(CP.S.inv||[]).forEach(function(i){if(F.locked(i))lockObj(i)})}
+function reload(){return F.load().then(function(){CP.refresh()})}
+
+/* ---------- calculs ---------- */
+CP.itemTotals=function(items){
+ var ht=0,tva=0;(items||[]).forEach(function(it){var l=Math.round((+it.q||0)*(+it.pu||0));ht+=l;tva+=Math.round(l*(TAX[it.t]!=null?TAX[it.t]:18)/100)});
+ return{ht:ht,tva:tva,ttc:ht+tva};
+};
+function money(n){return CP.money(n)}
+function nextId(pre){
+ var m=0;CP.S.inv.forEach(function(i){var x=new RegExp('^'+pre+'(\\d+)$').exec(i.id);if(x)m=Math.max(m,parseInt(x[1],10))});
+ return pre+('000'+(m+1)).slice(-4);
+}
+function digits(s){return String(s||'').replace(/\D/g,'')}
+
+/* ---------- contrôles avant certification (mêmes règles que le serveur) ---------- */
+F.check=function(inv){
+ var e=[],c=F.cred;
+ if(inv.type==='quote')e.push('Un devis ne peut pas être certifié : convertis-le d’abord en facture.');
+ if(!c||!c.has_token)e.push('Le jeton FNE n’est pas enregistré (Fiscalité → Paramètres fiscaux DGI).');
+ if(!c||!c.ncc)e.push('Le NCC de l’entreprise est manquant.');
+ if(!c||!c.point_of_sale)e.push('Le code point de vente est manquant.');
+ if(!c||!c.establishment)e.push('Le code établissement est manquant.');
+ var its=inv.items||[];
+ if(!its.length)e.push('La facture n’a aucune ligne : ouvre « Modifier » pour la détailler.');
+ its.forEach(function(it,i){
+  if(!String(it.d||'').trim())e.push('Ligne '+(i+1)+' : désignation manquante.');
+  if(!(+it.q>0))e.push('Ligne '+(i+1)+' : quantité invalide.');
+  if(!(+it.pu>=0))e.push('Ligne '+(i+1)+' : prix invalide.');
+ });
+ if(inv.type!=='credit'){
+  if(!inv.ctype)e.push('Type de client manquant (B2B, B2C, B2G ou B2F).');
+  if(inv.ctype==='B2B'&&!String(inv.ncc||'').trim())e.push('NCC du client obligatoire pour une facture B2B.');
+  if(digits(inv.phone).length<8)e.push('Téléphone du client manquant ou invalide.');
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(inv.email||'')))e.push('E-mail du client manquant ou invalide.');
+  if(!inv.pay)e.push('Mode de règlement manquant.');
+  if(inv.ctype==='B2F'&&!(+inv.fxRate>0&&inv.fxCur))e.push('Devise et taux de change obligatoires pour B2F.');
+ }
+ return e;
+};
+
+/* ---------- appel du serveur FNE ---------- */
+F.call=function(b){return call(b)};F.pushFirst=function(){return pushFirst()};
+function call(body){
+ body.workspace_id=wsId();
+ return sbc().functions.invoke('fne',{body:body}).then(function(r){
+  if(r.error){
+   var p=r.error.context&&typeof r.error.context.json==='function'?r.error.context.json():Promise.resolve(null);
+   return p.catch(function(){return null}).then(function(d){return d||{ok:false,kind:'network',message:'Impossible de joindre le serveur ComptaPro. Vérifie ta connexion internet puis réessaie.'}});
+  }
+  return r.data||{ok:false,message:'Réponse vide du serveur.'};
+ }).catch(function(){return{ok:false,kind:'network',message:'Impossible de joindre le serveur ComptaPro. Vérifie ta connexion internet puis réessaie.'}});
+}
+function busy(title,sub){CP.modal('<div class="fne-busy"><div class="spin" aria-hidden="true"></div><h2>'+esc(t(title))+'</h2><p class="sub">'+esc(t(sub))+'</p></div>','center')}
+function pushFirst(){
+ var c=CP.cloud;if(!c||!c.pushNow)return Promise.resolve();
+ return Promise.resolve(c.pushNow()).catch(function(){});
+}
+
+/* ---------- Certifier une facture / un avoir ---------- */
+ACT['fne.cert']=function(id){
+ var inv=by(CP.S.inv,id);if(!inv)return;
+ if(!F.online())return CP.toast(t('La certification FNE demande un compte connecté (pas le mode démo ni hors ligne).'),'err');
+ if(F.certified(inv))return CP.toast(t('Cette facture est déjà certifiée.'),'info');
+ var errs=F.check(inv);
+ if(errs.length)return showErrors(inv,errs);
+ var isCr=inv.type==='credit';
+ CP.confirm({title:tf(isCr?'Certifier l’avoir {0} ?':'Certifier la facture {0} ?',inv.id),
+  text:t('Elle sera envoyée à la DGI. Une fois certifiée, elle ne pourra plus être modifiée ni supprimée : seul un avoir permet de la corriger.'),
+  yes:t('Certifier'),fn:function(){run(inv,false)}});
+};
+function showErrors(inv,errs){
+ CP.modal('<h2>'+esc(t('Facture incomplète'))+'</h2><p class="sub">'+esc(t('Corrige ces points avant la certification :'))+'</p><ul class="fne-err">'+errs.map(function(e){return '<li>'+esc(t(e))+'</li>'}).join('')+'</ul>'
+  +'<div class="row wrap"><button class="btn" data-close>'+esc(t('Fermer'))+'</button>'+(inv.type==='credit'?'':'<button class="btn primary" data-act="inv2.edit" data-id="'+esc(inv.id)+'">'+esc(t('Modifier la facture'))+'</button>')+'</div>');
+}
+function run(inv,force){
+ if(navigator.onLine===false&&CP.fneQ&&CP.fneQ.add)return CP.fneQ.add(inv,force);
+ busy('Certification en cours…','Ne ferme pas cette page : la DGI répond en quelques secondes.');
+ pushFirst().then(function(){
+  var cr=inv.type==='credit';
+  var b=cr?{action:'refund',invoice_id:inv.id,parent_id:inv.origin,items:inv.sel}:{action:'certify',invoice_id:inv.id};
+  if(force)b.force=true;
+  return call(b);
+ }).then(function(d){
+  if(d&&d.ok){
+   if(CP.fneQ&&CP.fneQ.drop)CP.fneQ.drop(inv.id);
+   CP.log((inv.type==='credit'?'Avoir ':'Facture ')+inv.id+' certifié(e) FNE : '+d.reference);
+   CP.toast(tf('Certifiée par la DGI : {0}',d.reference),'win');
+   return F.load().then(function(){CP.refresh();CP.closeModal();ACT['sales.view'](inv.id);if(d.warning)CP.toast(String(d.warning),'info')});
+  }
+  return F.load().then(function(){CP.refresh();fail(inv,d||{})});
+ });
+}
+function fail(inv,d){
+ if(d&&d.kind==='network'&&CP.fneQ&&CP.fneQ.add)return CP.fneQ.add(inv,false);
+ var msg=d.message||d.error||'Échec de la certification.',extra='';
+ if(d.errors&&d.errors.length)return showErrors(inv,d.errors);
+ var retry='';
+ if(d.error==='uncertain'||d.uncertain)retry='<button class="btn" data-act="fne.force" data-id="'+esc(inv.id)+'">'+esc(t('Réessayer quand même'))+'</button>';
+ else if(d.kind==='network'||d.kind==='server')retry='<button class="btn primary" data-act="fne.cert" data-id="'+esc(inv.id)+'">'+esc(t('Réessayer'))+'</button>';
+ if(d.uncertain||d.error==='uncertain')extra='<p class="hint">'+esc(t('Avant de réessayer, vérifie dans ton espace FNE que la facture n’y figure pas déjà : sinon elle serait certifiée deux fois.'))+'</p>';
+ CP.modal('<h2>'+esc(t(d.kind==='rejected'?'Facture refusée par la DGI':'Certification non aboutie'))+'</h2><p class="sub">'+esc(String(msg))+'</p>'+extra
+  +'<p class="hint">'+esc(t('La facture reste en brouillon : tu peux la corriger et recommencer.'))+'</p><div class="row wrap"><button class="btn" data-close>'+esc(t('Fermer'))+'</button>'+retry+'</div>');
+}
+ACT['fne.force']=function(id){
+ var inv=by(CP.S.inv,id);if(!inv)return;
+ CP.confirm({title:t('Réessayer malgré le doute ?'),text:t('Si la DGI a déjà reçu cette facture, elle risque d’être enregistrée en double.'),yes:t('Réessayer'),danger:true,fn:function(){run(inv,true)}});
+};
+
+/* ---------- Avoir ---------- */
+function creditedQty(id,idx){
+ var q=0;(CP.S.inv||[]).forEach(function(c){
+  if(c.type==='credit'&&c.origin===id){var r=F.row(c);if(r&&r.fne_status==='certified')(c.sel||[]).forEach(function(s){if(s.index===idx)q+=+s.quantity})}
+ });return q;
+}
+ACT['fne.refund']=function(id){
+ var inv=by(CP.S.inv,id);if(!inv)return;
+ if(!F.certified(inv))return CP.toast(t('Seule une facture certifiée peut recevoir un avoir.'),'err');
+ var rows=(inv.items||[]).map(function(it,i){
+  var left=Math.max(0,(+it.q)-creditedQty(id,i));
+  return '<div class="il2"><div class="d"><b>'+esc(it.d)+'</b><small>'+esc(tf('{0} × {1} · restant {2}',it.q,CP.num(it.pu),left))+'</small></div>'
+   +'<input class="inp" type="number" min="0" max="'+left+'" step="any" value="'+left+'" data-rq="'+i+'" '+(left?'':'disabled')+' aria-label="'+esc(t('Quantité à rembourser'))+'"></div>';
+ }).join('');
+ CP.modal('<form class="form" id="avF"><div><h2>'+esc(tf('Facture d’avoir sur {0}',inv.id))+'</h2><p class="sub">'+esc(t('Indique la quantité à rembourser pour chaque ligne. L’avoir sera envoyé à la DGI pour certification.'))+'</p></div>'
+  +'<div class="ferr" role="alert" hidden></div>'+rows+'<div class="row wrap"><button type="button" class="btn" data-close>'+esc(t('Annuler'))+'</button><button type="button" class="btn primary" data-act="fne.refund2" data-id="'+esc(id)+'">'+esc(t('Émettre l’avoir'))+'</button></div></form>');
+};
+ACT['fne.refund2']=function(id){
+ var inv=by(CP.S.inv,id);if(!inv)return;
+ var sel=[],items=[],er=$('#avF .ferr');
+ $$('#avF [data-rq]').forEach(function(el){
+  var i=+el.dataset.rq,q=parseFloat(String(el.value).replace(',','.')),it=inv.items[i],left=Math.max(0,(+it.q)-creditedQty(id,i));
+  if(!q||q<=0)return;
+  if(q>left){el.dataset.bad='1';return}
+  sel.push({index:i,quantity:q});items.push({d:it.d,q:q,pu:it.pu,t:it.t,ref:it.ref,u:it.u});
+ });
+ if($('#avF [data-bad]')||!sel.length){er.textContent=t($('#avF [data-bad]')?'Une quantité dépasse ce qui reste à rembourser.':'Choisis au moins une ligne à rembourser.');er.hidden=false;$$('#avF [data-bad]').forEach(function(x){delete x.dataset.bad});return}
+ var T=CP.itemTotals(items),n=nextId('AV-');
+ CP.S.inv.unshift({id:n,type:'credit',origin:id,client:inv.client,date:CP.today(),due:CP.today(),amount:-T.ttc,st:'paid',lock:false,items:items,sel:sel,pay:inv.pay,ctype:inv.ctype,ncc:inv.ncc||'',phone:inv.phone||'',email:inv.email||''});
+ CP.log('Avoir '+n+' créé sur '+id);CP.refresh();
+ var cr=by(CP.S.inv,n);
+ CP.closeModal();
+ if(!F.online())return CP.toast(t('Avoir créé en brouillon : connecte-toi pour le certifier.'),'info');
+ run(cr,false);
+};
+
+/* ---------- Formulaire facture / devis avec lignes ---------- */
+var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
+function lineRow(it,i){
+ it=it||{d:'',q:1,pu:'',t:'TVA'};
+ return '<div class="il" data-i="'+i+'"><input class="inp" data-f="d" list="invP" placeholder="'+esc(t('Désignation'))+'" value="'+esc(it.d)+'" aria-label="'+esc(t('Désignation'))+'">'
+  +'<input class="inp" data-f="q" type="number" min="0" step="any" value="'+esc(it.q)+'" aria-label="'+esc(t('Qté'))+'">'
+  +'<input class="inp" data-f="pu" type="number" min="0" step="any" value="'+esc(it.pu)+'" placeholder="'+esc(t('Prix HT'))+'" aria-label="'+esc(t('PU HT'))+'">'
+  +'<select class="inp" data-f="t" aria-label="'+esc(t('TVA'))+'">'+TAXL.map(function(x){return '<option value="'+x[0]+'"'+(x[0]===it.t?' selected':'')+'>'+esc(t(x[1]))+'</option>'}).join('')+'</select>'
+  +'<button type="button" class="ra" data-act="inv2.rm" data-id="'+i+'" title="'+esc(t('Retirer la ligne'))+'" aria-label="'+esc(t('Retirer la ligne'))+'">'+ic('trash',16)+'</button></div>';
+}
+function readLines(){
+ return $$('#invL .il').map(function(r){
+  var g=function(f){return r.querySelector('[data-f="'+f+'"]').value};
+  return{d:g('d').trim(),q:parseFloat(String(g('q')).replace(',','.'))||0,pu:parseFloat(String(g('pu')).replace(',','.')),t:g('t')};
+ });
+}
+function recalc(){
+ var T=CP.itemTotals(readLines().map(function(x){return{q:x.q,pu:isNaN(x.pu)?0:x.pu,t:x.t}})),e=$('#invT');
+ if(e)e.innerHTML='<span>'+esc(t('Total HT'))+' <b>'+money(T.ht)+'</b></span><span>'+esc(t('TVA'))+' <b>'+money(T.tva)+'</b></span><span class="big">'+esc(t('Total TTC'))+' <b>'+money(T.ttc)+'</b></span>';
+}
+function cliOf(n){return CP.S.clients.filter(function(c){return c.name===n})[0]||{}}
+function invForm(type,inv){
+ var cl=CP.S.clients.map(function(c){return[c.name,c.name]});
+ if(!cl.length)return CP.toast(t('Ajoute d’abord un client.'),'err');
+ var e=!!inv,i=inv||{},c0=cliOf(i.client||cl[0][0]);
+ var its=(i.items&&i.items.length)?i.items:(e&&i.amount?[{d:'Prestations et marchandises',q:1,pu:CP.splitTTC(i.amount).ht,t:'TVA'}]:[{d:'',q:1,pu:'',t:'TVA'}]);
+ var days=i.due&&i.date?Math.max(0,CP.diff(i.due,i.date)):30;
+ function fld(k,l,v,o){return '<div class="field"><label for="iv_'+k+'">'+esc(t(l))+'</label>'+o+'</div>'}
+ function sel(k,list,v){return '<select class="inp" id="iv_'+k+'" name="'+k+'">'+list.map(function(x){return '<option value="'+esc(x[0])+'"'+(String(x[0])===String(v)?' selected':'')+'>'+esc(t(x[1]))+'</option>'}).join('')+'</select>'}
+ function inp(k,v,ty,ph){return '<input class="inp" id="iv_'+k+'" name="'+k+'" type="'+(ty||'text')+'" value="'+esc(v||'')+'" placeholder="'+esc(ph||'')+'" autocomplete="off">'}
+ var prods=(CP.S.products||[]).map(function(p){return '<option value="'+esc(p.name||p.label||'')+'">'}).join('');
+ CP.modal('<form class="form" id="invF" data-type="'+type+'" data-edit="'+(e?esc(i.id):'')+'" novalidate><div><h2>'+esc(t(e?'Modifier le brouillon':(type==='quote'?'Nouveau devis':'Nouvelle facture')))+'</h2>'
+  +'<p class="sub">'+esc(t('Une facture reste modifiable tant qu’elle est en brouillon. Elle devient définitive dès que la DGI l’a certifiée.'))+'</p></div>'
+  +'<div class="ferr" role="alert" hidden></div><div class="fgrid">'
+  +fld('client','Client',0,sel('client',cl,i.client||cl[0][0]))
+  +fld('ctype','Type de client',0,sel('ctype',CTL,i.ctype||'B2C'))
+  +fld('ncc','NCC du client (obligatoire en B2B)',0,inp('ncc',i.ncc||c0.ncc||c0.ifu||c0.nif||''))
+  +fld('phone','Téléphone du client',0,inp('phone',i.phone||c0.phone||'','tel'))
+  +fld('email','E-mail du client',0,inp('email',i.email||c0.email||'','email'))
+  +fld('pay','Mode de règlement',0,sel('pay',PAYL,i.pay||'cash'))
+  +fld('days','Échéance',0,sel('days',[['0','Immédiate'],['15','15 jours'],['30','30 jours'],['45','45 jours'],['60','60 jours']],String(days)))
+  +'<div class="field fx" hidden><label for="iv_fxCur">'+esc(t('Devise (B2F)'))+'</label>'+inp('fxCur',i.fxCur||'','text','EUR')+'</div>'
+  +'<div class="field fx" hidden><label for="iv_fxRate">'+esc(t('Taux de change (B2F)'))+'</label>'+inp('fxRate',i.fxRate||'','number','655.957')+'</div></div>'
+  +'<div class="il-h"><b>'+esc(t('Lignes'))+'</b><small>'+esc(t('Prix en FCFA, hors taxe'))+'</small></div><div id="invL">'+its.map(lineRow).join('')+'</div><datalist id="invP">'+prods+'</datalist>'
+  +'<div class="row"><button type="button" class="btn sm" data-act="inv2.add">'+ic('plus',15)+esc(t('Ajouter une ligne'))+'</button></div><div class="pp-tot" id="invT"></div>'
+  +'<div class="row wrap"><button type="button" class="btn" data-close>'+esc(t('Annuler'))+'</button><button type="button" class="btn primary" data-act="inv2.save">'+esc(t(e?'Enregistrer':'Créer le brouillon'))+'</button></div></form>');
+ recalc();ctChange();
+}
+function ctChange(){var f=$('#invF');if(!f)return;var b=f.elements.ctype.value==='B2F';$$('#invF .fx').forEach(function(x){x.hidden=!b})}
+document.addEventListener('input',function(e){if(e.target.closest&&e.target.closest('#invL'))recalc();
+ if(e.target.matches&&e.target.matches('#invL [data-f="d"]')){
+  var p=(CP.S.products||[]).filter(function(x){return (x.name||x.label)===e.target.value})[0],row=e.target.closest('.il'),pu=row&&row.querySelector('[data-f="pu"]');
+  if(p&&pu&&!pu.value&&p.price)pu.value=Math.round(p.price);recalc()}});
+document.addEventListener('change',function(e){
+ if(e.target.id==='iv_ctype')ctChange();
+ if(e.target.id==='iv_client'){var c=cliOf(e.target.value),f=$('#invF');if(!f)return;
+  [['phone',c.phone],['email',c.email],['ncc',c.ncc||c.ifu||c.nif]].forEach(function(p){if(f.elements[p[0]]&&p[1])f.elements[p[0]].value=p[1]})}
+ if(e.target.closest&&e.target.closest('#invL'))recalc();
+});
+ACT['inv2.add']=function(){var l=$('#invL');if(!l)return;l.insertAdjacentHTML('beforeend',lineRow(null,l.children.length));var r=l.lastElementChild.querySelector('input');if(r)r.focus();recalc()};
+ACT['inv2.rm']=function(id){var l=$('#invL');if(!l||l.children.length<2)return CP.toast(t('Il faut au moins une ligne.'),'info');var r=l.children[+id];if(r)r.remove();$$('#invL .il').forEach(function(x,k){x.dataset.i=k;var b=x.querySelector('[data-act="inv2.rm"]');if(b)b.dataset.id=k});recalc()};
+ACT['inv2.new']=function(){invForm('inv')};
+ACT['inv2.newq']=function(){invForm('quote')};
+ACT['inv2.edit']=function(id){
+ var i=by(CP.S.inv,id);if(!i)return;
+ if(F.held(i))return CP.toast(t(F.queued(i)?'Facture en attente de certification : annule l’attente pour la modifier.':'Facture certifiée : elle ne peut plus être modifiée. Émets un avoir pour la corriger.'),'err');
+ invForm(i.type==='quote'?'quote':'inv',i);
+};
+ACT['inv2.save']=function(){
+ var f=$('#invF');if(!f)return;
+ var er=$('#invF .ferr'),type=f.dataset.type,eid=f.dataset.edit;
+ function bad(m){er.textContent=t(m);er.hidden=false;er.style.animation='none';void er.offsetWidth;er.style.animation=''}
+ var ls=readLines();
+ if(!ls.length)return bad('Ajoute au moins une ligne.');
+ for(var k=0;k<ls.length;k++){
+  if(!ls[k].d)return bad('Ligne '+(k+1)+' : écris la désignation.');
+  if(!(ls[k].q>0))return bad('Ligne '+(k+1)+' : la quantité doit être supérieure à 0.');
+  if(isNaN(ls[k].pu)||ls[k].pu<0)return bad('Ligne '+(k+1)+' : indique le prix HT.');
+  ls[k].pu=Math.round(ls[k].pu);
+ }
+ var g=function(n){return f.elements[n]?String(f.elements[n].value).trim():''};
+ if(type!=='quote'&&g('ctype')==='B2B'&&!g('ncc'))return bad('Le NCC du client est obligatoire pour une facture B2B.');
+ var T=CP.itemTotals(ls),o;
+ if(eid){
+  o=by(CP.S.inv,eid);if(!o)return;
+  if(F.held(o))return bad('Cette facture est certifiée : elle ne peut plus être modifiée.');
+ }else{
+  o={id:nextId(type==='quote'?'DEV-':'FAC-'),type:type,date:CP.today(),st:'open',lock:false};
+  CP.S.inv.unshift(o);
+ }
+ o.client=g('client');o.ctype=g('ctype');o.ncc=g('ncc');o.phone=g('phone');o.email=g('email');o.pay=g('pay');
+ o.due=CP.ahead(+g('days'));o.items=ls;o.amount=T.ttc;o.lock=false;
+ if(o.ctype==='B2F'){o.fxCur=g('fxCur').toUpperCase();o.fxRate=parseFloat(g('fxRate'))||0}else{delete o.fxCur;delete o.fxRate}
+ delete o.lines;
+ CP.log((type==='quote'?'Devis ':'Facture ')+o.id+(eid?' modifié(e)':' créé(e) pour '+o.client));
+ CP.toast(tf(eid?'{0} enregistré':(type==='quote'?'Devis {0} créé':'Brouillon {0} créé'),o.id),'win');
+ if(!eid){if(type!=='quote')CP.track('inv');else CP.gain(5)}
+ CP.closeModal();CP.refresh();
+};
+
+/* ---------- suppression : jamais d’une facture certifiée ---------- */
+var del0=ACT['sales.del'];
+ACT['sales.del']=function(id){
+ var i=by(CP.S.inv,id);
+ if(i&&F.held(i))return CP.toast(t(F.queued(i)?'Facture en attente de certification : annule l’attente pour la supprimer.':'Facture certifiée : elle ne peut plus être modifiée ni supprimée. Émets un avoir pour la corriger.'),'err');
+ del0(id);
+};
+
+/* ---------- affichage : pastilles, boutons, aperçu ---------- */
+CP.fneBadge=function(r){
+ if(r.type==='quote')return '';
+ if(F.queued(r))return ' '+CP.pill('warn',t('En attente FNE'));
+ var x=F.row(r),k=x&&x.fne_status;
+ if(k==='certified')return ' '+CP.pill('good',t('Certifiée DGI'));
+ if(k==='pending')return ' '+CP.pill('warn',t('FNE en cours'));
+ if(k==='rejected'||k==='error')return ' '+CP.pill('crit',t('Brouillon · FNE à refaire'));
+ return ' '+CP.pill('info',t('Brouillon'));
+};
+CP.fneActs=function(r,a){
+ if(r.type==='quote')return;
+ a.push(['fne.ticket','receipt','Ticket 80 mm']);
+ if(F.certified(r)){if(r.type==='inv')a.push(['fne.refund','undo','Émettre un avoir'])}
+ else if(F.queued(r)){a.push(['fneq.open','shield','Voir la file d’attente FNE'])}
+ else if(!F.locked(r)){a.push(['fne.cert','shield','Certifier (FNE)']);if(r.type==='inv')a.push(['inv2.edit','edit','Modifier'])}
+};
+CP.fneBtns=function(inv){
+ if(inv.type==='quote')return '';
+ var h='<button class="btn" data-act="fne.ticket" data-id="'+esc(inv.id)+'">'+ic('receipt',16)+esc(t('Ticket 80 mm'))+'</button>';
+ if(F.certified(inv)){if(inv.type==='inv')h+='<button class="btn" data-act="fne.refund" data-id="'+esc(inv.id)+'">'+ic('undo',16)+esc(t('Émettre un avoir'))+'</button>'}
+ else if(F.queued(inv)){h+='<button class="btn primary" data-act="fneq.open">'+ic('shield',16)+esc(t('File d’attente FNE'))+'</button>'}
+ else if(!F.locked(inv)){if(inv.type==='inv')h+='<button class="btn" data-act="inv2.edit" data-id="'+esc(inv.id)+'">'+ic('edit',16)+esc(t('Modifier'))+'</button>';h+='<button class="btn primary" data-act="fne.cert" data-id="'+esc(inv.id)+'">'+ic('shield',16)+esc(t('Certifier (FNE)'))+'</button>'}
+ return h;
+};
+CP.fnePaper=function(inv){
+ if(inv.type==='quote')return '<p class="pp-lock">'+esc(t('Devis non verrouillé'))+'</p>';
+ var r=F.row(inv),h='';
+ if(F.queued(inv))return '<p class="pp-lock fne-draft">'+esc(t('Reçu provisoire – en attente de certification FNE (pas d’internet). Aucun QR code tant que la DGI n’a pas certifié.'))+'</p>';
+ if(inv.origin)h+='<p class="pp-lock">'+esc(tf('Avoir sur la facture {0}',inv.origin))+'</p>';
+ if(r&&r.fne_status==='certified'){
+  var q='';try{q=CP.qrSvg(r.fne_qr_url,112)}catch(e){}
+  return h+'<div class="fne-ok"><div class="fq">'+q+'</div><div><b class="ok">'+ic('lock',14)+' '+esc(t('Facture normalisée certifiée par la DGI'))+'</b>'
+   +'<span>'+esc(t('N° de série DGI'))+' : <b class="mono">'+esc(r.fne_reference)+'</b></span>'
+   +(F.cred&&F.cred.ncc?'<span>NCC : '+esc(F.cred.ncc)+'</span>':'')
+   +'<span>'+esc(t('Certifiée le'))+' '+esc(CP.dfmt(String(r.fne_certified_at).slice(0,10)))+'</span>'
+   +(r.balance_sticker!=null?'<span>'+esc(t('Solde d’autocollants'))+' : '+esc(r.balance_sticker)+'</span>':'')
+   +'<small>'+esc(t('Scanne le QR code pour vérifier la facture sur le portail de la DGI.'))+'</small></div></div>';
+ }
+ return h+'<p class="pp-lock fne-draft">'+esc(t('Brouillon – non certifié par la DGI : ce document n’a pas valeur de facture normalisée.'))+'</p>';
+};
+
+/* ---------- Ticket thermique 80 mm ---------- */
+function ticketDraw(P,m,inv,W,measure){
+ var pad=10,y=14,ink='#000000',mut='#444444',c=(X.co&&X.co())||{},cx=W/2;
+ function tx(s,o,x){o=o||{};if(measure)return CP.pdfW(String(s),o.s||8,o.b);return P.text(x==null?(o.a==='c'?cx:pad):x,y,s,o)}
+ function ln(){if(measure)return;P.line(pad,y,W-pad,y,{c:'#000000',lw:.5})}
+ function center(s,o){o=o||{};o.a='c';tx(s,o);y+=(o.s||8)+3}
+ CP.pdfWrap(String(c.name||'Entreprise'),W-2*pad,11,true).forEach(function(s){center(s,{s:11,b:1,c:ink})});
+ ((X.coMentions&&X.coMentions())||[]).forEach(function(s){CP.pdfWrap(String(s),W-2*pad,7,false).forEach(function(w){center(w,{s:7,c:mut})})});
+ y+=3;ln();y+=10;
+ center(m.title+' N° '+m.no,{s:9,b:1,c:ink});
+ center(CP.dfmt(m.date),{s:8,c:mut});
+ if(m.origin)center('Avoir sur : '+m.origin,{s:7.5,c:mut});
+ CP.pdfWrap('Client : '+m.party,W-2*pad,8,false).forEach(function(s){center(s,{s:8,c:ink})});
+ y+=2;ln();y+=11;
+ m.lines.forEach(function(l,i){
+  CP.pdfWrap(String(l[0]),W-2*pad,8,true).forEach(function(s){tx(s,{s:8,b:1,c:ink});y+=10});
+  var it=inv.items&&inv.items[i],tot=Math.round((l[1]||1)*(l[2]||0)),rt=it&&TAX[it.t]!=null?TAX[it.t]:CP.VATR();
+  tx((l[1]||1)+' x '+CP.num(l[2]||0)+'  (TVA '+rt+' %)',{s:7.5,c:mut});tx(CP.num(tot),{s:8,a:'r',c:ink},W-pad);y+=11;
+ });
+ ln();y+=11;
+ tx('Total HT',{s:8,c:mut});tx(CP.num(m.ht),{s:8,a:'r',c:ink},W-pad);y+=11;
+ tx('TVA',{s:8,c:mut});tx(CP.num(m.tva),{s:8,a:'r',c:ink},W-pad);y+=13;
+ tx('TOTAL TTC',{s:11,b:1,c:ink});tx(CP.num(m.ttc)+' FCFA',{s:11,b:1,a:'r',c:ink},W-pad);y+=14;
+ if(inv.pay){var pl=PAYL.filter(function(p){return p[0]===inv.pay})[0];tx('Règlement : '+(pl?pl[1]:inv.pay),{s:7.5,c:mut});y+=11}
+ ln();y+=11;
+ if(m.fne){
+  center('FACTURE NORMALISÉE ÉLECTRONIQUE',{s:8,b:1,c:ink});
+  center('Certifiée par la DGI',{s:8,b:1,c:ink});
+  center('N° de série DGI',{s:7,c:mut});
+  CP.pdfWrap(String(m.fne.fne_reference),W-2*pad,9,true).forEach(function(s){center(s,{s:9,b:1,c:ink})});
+  if(m.nccIssuer)center('NCC : '+m.nccIssuer,{s:7.5,c:mut});
+  y+=4;var sz=118;if(!measure)P.qr(cx-sz/2,y,sz,m.qrText);y+=sz+8;
+  if(m.fne.balance_sticker!=null)center('Solde autocollants : '+m.fne.balance_sticker,{s:7,c:mut});
+  CP.pdfWrap('Scannez le QR code pour vérifier l’authenticité de cette facture auprès de la DGI.',W-2*pad,6.5,false).forEach(function(s){center(s,{s:6.5,c:mut})});
+ }else{
+  center(m.queued?'REÇU PROVISOIRE':'DOCUMENT NON CERTIFIÉ',{s:8.5,b:1,c:'#000000'});
+  CP.pdfWrap(m.queued?'En attente de certification FNE (connexion indisponible). Pas de QR code ni de valeur fiscale : la facture normalisée vous sera remise dès le retour d’internet.':'Brouillon sans valeur de facture normalisée tant que la DGI (FNE) ne l’a pas certifié.',W-2*pad,7,false).forEach(function(s){center(s,{s:7,c:mut})});
+ }
+ y+=6;center('Merci de votre confiance',{s:7.5,c:mut});
+ return y+12;
+}
+CP.invTicket=function(inv){
+ return X.saleModel(inv).then(function(m){
+  var W=226.77,h=Math.max(260,Math.ceil(ticketDraw(null,m,inv,W,true)));
+  var d=CP.pdfNew({title:'Ticket '+m.no,author:((X.co&&X.co())||{}).name||'ComptaPro',subject:inv.client,w:W,h:h});
+  ticketDraw(d.page(),m,inv,W,false);
+  return d.bytes();
+ });
+};
+ACT['fne.ticket']=function(id){var i=by(CP.S.inv,id);if(!i)return;CP.invTicket(i).then(function(b){CP.saveFile(CP.invFile(i,'pdf').replace(/\.pdf$/,'_TICKET-80mm.pdf'),b)})};
+
+/* ---------- Paramètres fiscaux DGI (Gérant / Admin) ---------- */
+CP.fneCard=function(){
+ var c=F.cred||{},prod=c.environment==='production';
+ function r(l,v){return '<div class="set-row"><span>'+esc(t(l))+'</span><b>'+esc(v||'—')+'</b></div>'}
+ if(!F.online())return CP.card('Paramètres fiscaux DGI','<p class="hint">'+esc(t('Connecte-toi avec ton compte en ligne pour régler la facturation normalisée (FNE).'))+'</p>');
+ return CP.card('Paramètres fiscaux DGI','<div class="stack">'
+  +r('Numéro de compte contribuable (NCC)',c.ncc)+r('Code point de vente',c.point_of_sale)+r('Code établissement',c.establishment)
+  +'<div class="set-row"><span>'+esc(t('Environnement'))+'</span>'+CP.pill(prod?'crit':'info',t(prod?'Production':'Sandbox Test'))+'</div>'
+  +(prod?r('Adresse de production',c.production_url):'')
+  +'<div class="set-row"><span>'+esc(t('Clé API / jeton FNE'))+'</span><b>'+esc(c.has_token?'•••• '+(c.token_last4||''):t('Non enregistrée'))+'</b></div></div>'
+  +'<p class="hint" style="margin-top:10px">'+esc(t('Le jeton est chiffré dans la base et n’est jamais renvoyé au navigateur.'))+'</p>'
+  +'<div class="actions" style="margin-top:12px">'+CP.btn('Modifier','fne.set',{k:'primary',i:'edit'})+CP.btn('Tester la connexion','fne.test',{i:'shield'})+'</div>');
+};
+ACT['fne.set']=function(){
+ if(!CP.isAdmin())return CP.toast(t('Action réservée au Gérant / Admin.'),'err');
+ var c=F.cred||{};
+ CP.form({title:'Paramètres fiscaux DGI',sub:'Ces informations viennent de ton espace FNE (DGI). Commence en Sandbox Test ; la Production n’est ouverte qu’après validation de tes factures-types par la DGI.',fields:[
+  {k:'ncc',l:'Numéro de compte contribuable (NCC)',v:c.ncc||'',req:true,w:true},
+  {k:'pos',l:'Code point de vente',v:c.point_of_sale||'',req:true},{k:'etab',l:'Code établissement',v:c.establishment||'',req:true},
+  {k:'env',l:'Environnement',t:'select',o:[['sandbox','Sandbox Test'],['production','Production']],v:c.environment||'sandbox',w:true},
+  {k:'url',l:'Adresse de production (https, donnée par la DGI)',v:c.production_url||'',w:true,ph:'https://…'},
+  {k:'token',l:'Clé API / jeton FNE',t:'password',w:true,ph:c.has_token?'Laisser vide pour garder le jeton actuel':'Colle ici le jeton reçu de la DGI'}],
+  fn:function(v){
+   if(!c.has_token&&!v.token)return 'Colle le jeton FNE reçu de la DGI.';
+   call({action:'settings.save',ncc:v.ncc,point_of_sale:v.pos,establishment:v.etab,environment:v.env,production_url:v.url,token:v.token||undefined}).then(function(d){
+    if(d&&d.ok){CP.log('Paramètres fiscaux DGI modifiés');CP.toast(t('Paramètres fiscaux enregistrés'),'win');reload()}
+    else CP.toast(String((d&&d.message)||t('Enregistrement refusé.')),'err');
+   });
+  }});
+};
+ACT['fne.test']=function(){
+ if(!CP.isAdmin())return CP.toast(t('Action réservée au Gérant / Admin.'),'err');
+ CP.toast(t('Test de connexion en cours…'),'info');
+ call({action:'settings.test'}).then(function(d){CP.toast(String((d&&d.message)||t('Pas de réponse.')),d&&d.ok?'win':'err')});
+};
+
+/* ---------- branchements sur les vues existantes ---------- */
+var s0=V.sales;
+if(s0)V.sales=function(){
+ if(F.online()&&F.loadedFor!==wsId()){F.loadedFor=wsId();F.load().then(function(){CP.refresh()})}
+ lockAll();
+ return s0.apply(this,arguments);
+};
+var x0=V.tax;
+if(x0)V.tax=function(){
+ if(F.online()&&F.loadedFor!==wsId()){F.loadedFor=wsId();F.load().then(function(){CP.refresh()})}
+ return x0.apply(this,arguments);
+};
+ACT['sales.new']=ACT['inv2.new'];
+ACT['sales.newq']=ACT['inv2.newq'];
+
+/* ---------- styles ---------- */
+var st=document.createElement('style');
+st.textContent='.il{display:grid;grid-template-columns:minmax(0,2.2fr) 70px 100px minmax(0,1.3fr) 34px;gap:6px;margin-bottom:6px;align-items:center}'
++'.il-h{display:flex;justify-content:space-between;align-items:baseline;margin-top:12px}.il-h small{color:var(--muted)}'
++'#invT,.pp-tot#invT{display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:flex-end;margin:10px 0}'
++'.il2{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line,#e2e8f0)}.il2 .d{min-width:0}.il2 small{display:block;color:var(--muted)}.il2 .inp{width:90px}'
++'.fne-ok{display:flex;gap:14px;align-items:center;margin-top:16px;padding:12px;border:1px solid #16a34a;border-radius:10px;background:#f0fdf4;color:#0f172a}.fne-ok span,.fne-ok small{display:block;font-size:12px}.fne-ok .ok{display:flex;align-items:center;gap:6px;color:#15803d;margin-bottom:4px}.fne-ok .fq{background:#fff;padding:4px;border-radius:6px;flex:none}.fne-ok .fq svg{display:block}'
++'.fne-draft{color:#b45309}.fne-err{margin:10px 0 16px 18px;display:grid;gap:6px}.fne-busy{text-align:center;padding:18px 6px}.fne-busy .spin{width:34px;height:34px;margin:0 auto 12px;border:3px solid #cbd5e1;border-top-color:#2563eb;border-radius:50%;animation:fnesp .8s linear infinite}@keyframes fnesp{to{transform:rotate(360deg)}}'
++'@media (max-width:560px){.il{grid-template-columns:1fr 1fr 34px}.il [data-f=d]{grid-column:1/-1}.il [data-f=t]{grid-column:1/3}}';
+document.head.appendChild(st);
+})();
+
+/* ===== Sprint 3 : mode hors-ligne, file d'attente FNE (fne_sync_queue), worker de synchronisation ===== */
+(function(){"use strict";
+var CP=window.CP,A=CP.auth,ACT=CP.ACT,esc=CP.esc,t=function(s){return CP.t(s)},tf=CP.tf,ic=CP.ic,$=CP.$,by=CP.by,F=CP.fne;
+if(!F)return;
+var EVERY=15000;   /* le worker teste la connexion toutes les 15 secondes */
+
+/* ---------- file d'attente locale (fne_sync_queue), propre à chaque dossier ---------- */
+function wsId(){return CP.U&&CP.U.ws&&CP.U.ws.id}
+function key(w){return 'cp-fne-sync-queue-'+w}
+function rd(w){try{return JSON.parse(localStorage.getItem(key(w))||'[]')}catch(e){return[]}}
+function wr(w,l){try{localStorage.setItem(key(w),JSON.stringify(l));return true}catch(e){CP.toast(t('Impossible d’enregistrer la file d’attente : l’espace de stockage du navigateur est plein.'),'err');return false}}
+var Q=CP.fneQ={online:true,busy:false,last:null};
+Q.list=function(){var w=wsId();return w?rd(w):[]};
+Q.has=function(id){return Q.list().some(function(x){return x.id===id})};
+/* « en attente » = bloquée pour modification : en attente d'envoi ou résultat incertain à vérifier */
+Q.waiting=function(id){return Q.list().some(function(x){return x.id===id&&(x.status==='EN_ATTENTE_FNE'||x.status==='INCERTAIN')})};
+Q.count=function(){return Q.list().filter(function(x){return x.status==='EN_ATTENTE_FNE'}).length};
+Q.add=function(inv,force){
+ var w=wsId();if(!w)return;
+ var l=rd(w).filter(function(x){return x.id!==inv.id});
+ var cr=inv.type==='credit';
+ l.push({id:inv.id,kind:cr?'refund':'certify',parent:cr?inv.origin:null,sel:cr?inv.sel:null,client:inv.client,amount:inv.amount,at:new Date().toISOString(),tries:0,force:!!force,status:'EN_ATTENTE_FNE',msg:''});
+ if(!wr(w,l))return;
+ CP.log('Facture '+inv.id+' mise en attente FNE (pas d’internet)');
+ CP.refresh();badge();
+ CP.modal('<h2>'+esc(t('Pas d’internet : facture mise en attente'))+'</h2>'
+  +'<p class="sub">'+esc(tf('{0} est enregistrée en statut « EN_ATTENTE_FNE ». Elle sera envoyée à la DGI automatiquement dès que la connexion revient (contrôle toutes les 15 secondes), tant que ComptaPro reste ouvert.',inv.id))+'</p>'
+  +'<p class="hint">'+esc(t('Tu peux déjà remettre un reçu provisoire au client : il n’a pas de QR code et n’a aucune valeur fiscale.'))+'</p>'
+  +'<div class="row wrap"><button class="btn" data-close>'+esc(t('Fermer'))+'</button><button class="btn" data-act="fne.ticket" data-id="'+esc(inv.id)+'">'+ic('receipt',16)+esc(t('Reçu provisoire 80 mm'))+'</button><button class="btn primary" data-act="sales.pdf" data-id="'+esc(inv.id)+'">'+ic('download',16)+esc(t('Reçu provisoire A4'))+'</button></div>');
+};
+Q.drop=function(id){drop(id);badge()};
+function drop(id){var w=wsId();if(w)wr(w,rd(w).filter(function(x){return x.id!==id}))}
+function upd(id,f){var w=wsId();if(!w)return;var l=rd(w);l.forEach(function(x){if(x.id===id)f(x)});wr(w,l)}
+
+/* ---------- test de connexion ---------- */
+function probe(){
+ if(navigator.onLine===false)return Promise.resolve(false);
+ var c=CP.sb&&CP.sb.client,u=c&&(c.supabaseUrl||(c.rest&&c.rest.url));
+ if(!u)return Promise.resolve(navigator.onLine!==false);
+ var ac=typeof AbortController==='function'?new AbortController():null,to=setTimeout(function(){ac&&ac.abort()},6000);
+ return fetch(String(u).replace(/\/rest\/v1.*$/,'')+'/rest/v1/',{method:'GET',mode:'no-cors',cache:'no-store',signal:ac&&ac.signal})
+  .then(function(){clearTimeout(to);return true},function(){clearTimeout(to);return false});
+}
+
+/* ---------- worker : dépile la file, une facture à la fois ---------- */
+function tick(manual){
+ if(Q.busy||!F.online())return Promise.resolve();
+ return probe().then(function(ok){
+  Q.online=ok;Q.last=Date.now();badge();
+  var todo=Q.list().filter(function(x){return x.status==='EN_ATTENTE_FNE'});
+  if(!ok||!todo.length){if(ok&&manual&&!todo.length)CP.toast(t('Rien à envoyer : la file d’attente est vide.'),'info');return}
+  Q.busy=true;badge();
+  var changed=false,stop=false;
+  var seq=todo.reduce(function(p,it){return p.then(function(){
+   if(stop)return;
+   var inv=by(CP.S.inv,it.id);
+   if(!inv||F.certified(inv)){drop(it.id);return}
+   if(it.kind==='refund'){var par=F.map[it.parent];if(!(par&&par.fne_status==='certified')&&Q.waiting(it.parent))return}   /* l'avoir attend sa facture d'origine */
+   upd(it.id,function(x){x.tries=(x.tries||0)+1});
+   var b=it.kind==='refund'?{action:'refund',invoice_id:it.id,parent_id:it.parent,items:it.sel}:{action:'certify',invoice_id:it.id};
+   if(it.force)b.force=true;
+   return F.pushFirst().then(function(){return F.call(b)}).then(function(d){
+    d=d||{};
+    if(d.ok){drop(it.id);changed=true;CP.log('Facture '+it.id+' certifiée FNE (file d’attente) : '+d.reference);CP.toast(tf('{0} certifiée par la DGI : {1}',it.id,d.reference),'win');return}
+    if(d.kind==='network'||d.kind==='server'){stop=true;Q.online=false;return}
+    if(d.error==='pending')return;
+    if(d.uncertain||d.kind==='timeout'||d.error==='uncertain'){upd(it.id,function(x){x.status='INCERTAIN';x.msg=d.message||''});changed=true;return}
+    upd(it.id,function(x){x.status='REJETEE';x.msg=(d.errors&&d.errors[0])||d.message||'Refusée'});changed=true;
+    CP.toast(tf('{0} : refusée – {1}',it.id,(d.errors&&d.errors[0])||d.message||''),'err');
+   });
+  })},Promise.resolve());
+  return seq.then(function(){return changed?F.load():null}).then(function(){Q.busy=false;if(changed)CP.refresh();badge()},function(){Q.busy=false;badge()});
+ });
+}
+Q.tick=tick;
+setInterval(function(){tick(false)},EVERY);
+window.addEventListener('online',function(){setTimeout(function(){tick(false)},800)});
+window.addEventListener('offline',function(){Q.online=false;badge()});
+setTimeout(function(){tick(false)},4000);
+
+/* ---------- pastille d'état (hors-ligne / file d'attente) ---------- */
+function badge(){
+ var el=document.getElementById('fneQ');
+ if(!el){el=document.createElement('button');el.id='fneQ';el.type='button';el.className='fneq';el.setAttribute('data-act','fneq.open');document.body.appendChild(el)}
+ var n=Q.list().length,off=Q.online===false||navigator.onLine===false;
+ if(!F.online()||(!n&&!off)){el.hidden=true;return}
+ el.hidden=false;el.className='fneq'+(off?' off':'');
+ el.innerHTML='<span class="dot"></span>'+esc(off?t('Hors ligne'):(Q.busy?t('Synchronisation…'):t('En ligne')))+(n?' · '+esc(tf('{0} en attente FNE',n)):'');
+}
+Q.badge=badge;
+
+/* ---------- fenêtre « File d'attente FNE » ---------- */
+var ST={EN_ATTENTE_FNE:['warn','En attente'],INCERTAIN:['crit','Résultat incertain'],REJETEE:['crit','Refusée par la DGI']};
+ACT['fneq.open']=function(){
+ var l=Q.list(),off=Q.online===false||navigator.onLine===false;
+ var rows=l.length?l.map(function(x){
+  var s=ST[x.status]||['info',x.status],acts='<button class="btn sm" data-act="fne.ticket" data-id="'+esc(x.id)+'">'+esc(t('Reçu 80 mm'))+'</button>';
+  if(x.status==='INCERTAIN')acts+='<button class="btn sm" data-act="fneq.force" data-id="'+esc(x.id)+'">'+esc(t('Réessayer'))+'</button>';
+  acts+='<button class="btn sm" data-act="fneq.cancel" data-id="'+esc(x.id)+'">'+esc(t(x.status==='REJETEE'?'Retirer de la liste':'Annuler l’attente'))+'</button>';
+  return '<div class="fq-row"><div><b>'+esc(x.id)+'</b> · '+esc(x.client||'')+' '+CP.pill(s[0],t(s[1]))+'<small>'+esc((x.kind==='refund'?t('Avoir')+' · ':'')+CP.money(x.amount||0)+' · '+tf('{0} tentative(s)',x.tries||0))+'</small>'+(x.msg?'<small class="m">'+esc(x.msg)+'</small>':'')+'</div><div class="fq-a">'+acts+'</div></div>';
+ }).join(''):'<div class="empty">'+esc(t('Aucune facture en attente. Tout est à jour.'))+'</div>';
+ CP.modal('<h2>'+esc(t('File d’attente FNE'))+'</h2><p class="sub">'+esc(off?t('Pas de connexion : les factures sont gardées sur cet appareil et partiront dès le retour d’internet.'):t('Connexion disponible : la file est envoyée à la DGI toutes les 15 secondes.'))+'</p>'+rows
+  +'<div class="row wrap"><button class="btn" data-close>'+esc(t('Fermer'))+'</button><button class="btn primary" data-act="fneq.sync">'+ic('refresh',16)+esc(t('Synchroniser maintenant'))+'</button></div>');
+};
+ACT['fneq.sync']=function(){tick(true).then(function(){if($('#modal')&&!$('#modal').hidden&&$('.fq-row,.empty'))ACT['fneq.open']()})};
+ACT['fneq.cancel']=function(id){drop(id);CP.toast(t('Retiré de la file d’attente : la facture redevient un brouillon.'),'info');CP.refresh();badge();ACT['fneq.open']()};
+ACT['fneq.force']=function(id){
+ CP.confirm({title:t('Réessayer malgré le doute ?'),text:t('Vérifie d’abord dans ton espace FNE que cette facture n’y figure pas déjà, sinon elle serait certifiée deux fois.'),yes:t('Réessayer'),danger:true,fn:function(){upd(id,function(x){x.status='EN_ATTENTE_FNE';x.force=true;x.msg=''});badge();tick(true)}});
+};
+
+/* ---------- fonctionnement hors-ligne de l'application elle-même ---------- */
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}       /* le navigateur ne vide pas les données locales */
+try{if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register('sw.js').catch(function(){})}catch(e){}
+var warned=false;
+setInterval(function(){
+ if(warned)return;
+ try{var n=0;for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);n+=(k.length+String(localStorage.getItem(k)).length)*2}
+  if(n>4*1024*1024){warned=true;CP.toast(t('Le stockage local de ce navigateur est presque plein (≈5 Mo). Télécharge une sauvegarde chiffrée et allège les pièces.'),'err')}}catch(e){}
+},60000);
+
+/* ---------- styles ---------- */
+var st=document.createElement('style');
+st.textContent='.fneq{position:fixed;right:16px;bottom:16px;z-index:60;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;border:1px solid #16a34a;background:#f0fdf4;color:#14532d;font:600 12.5px/1 inherit;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.15)}'
++'.fneq.off{border-color:#dc2626;background:#fef2f2;color:#7f1d1d}.fneq .dot{width:9px;height:9px;border-radius:50%;background:#16a34a}.fneq.off .dot{background:#dc2626}'
++'.fq-row{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line,#e2e8f0)}.fq-row small{display:block;color:var(--muted)}.fq-row .m{color:#b91c1c}.fq-a{display:flex;gap:6px;flex-wrap:wrap}';
+document.head.appendChild(st);
+setTimeout(badge,1500);
+})();
+
 </script>
