@@ -6877,4 +6877,38 @@ CP.addNav({id:'auto',l:'Automatisation',i:'calc'},'compta',['Comptable']);
 CP.autoSync=sync;CP.autoLetter=letter;
 })();
 
+/* ===== Sprint 4 – Balance âgée clients (inspirée des états de tiers des logiciels de gestion) ===== */
+(function(){"use strict";
+var CP=window.CP,ACT=CP.ACT,esc=CP.esc,t=function(s){return CP.t(s)};
+var B=['Non échu','1 – 30 j','31 – 60 j','61 – 90 j','+ 90 j'];
+function bucket(d){return d<=0?0:d<=30?1:d<=60?2:d<=90?3:4}
+function aged(){
+ var td=CP.today(),m={};
+ (CP.S.inv||[]).forEach(function(i){
+  if(i.type==='quote'||i.st==='paid')return;
+  var due=i.due||i.date,d=Math.round((new Date(td)-new Date(due))/864e5),r=m[i.client]=m[i.client]||{c:i.client,v:[0,0,0,0,0],t:0};
+  r.v[bucket(d)]+=i.amount;r.t+=i.amount;
+ });
+ return Object.keys(m).map(function(k){return m[k]}).filter(function(r){return r.t!==0}).sort(function(a,b){return b.t-a.t});
+}
+function tot(rows){var v=[0,0,0,0,0];rows.forEach(function(r){r.v.forEach(function(x,k){v[k]+=x})});return v}
+function card(){
+ var rows=aged(),T=tot(rows),all=T.reduce(function(a,b){return a+b},0);
+ var body=rows.length?'<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:13px"><thead><tr><th>'+esc(t('Client'))+'</th>'+B.map(function(b){return '<th style="text-align:right">'+esc(t(b))+'</th>'}).join('')+'<th style="text-align:right">'+esc(t('Total'))+'</th></tr></thead><tbody>'
+  +rows.map(function(r){return '<tr><td>'+esc(r.c)+'</td>'+r.v.map(function(x){return '<td style="text-align:right">'+(x?CP.money(x):'–')+'</td>'}).join('')+'<td style="text-align:right"><b>'+CP.money(r.t)+'</b></td></tr>'}).join('')
+  +'</tbody><tfoot><tr><td><b>'+esc(t('Total'))+'</b></td>'+T.map(function(x){return '<td style="text-align:right"><b>'+CP.money(x)+'</b></td>'}).join('')+'<td style="text-align:right"><b>'+CP.money(all)+'</b></td></tr></tfoot></table></div>'
+  :'<p class="sub">'+esc(t('Aucune facture impayée.'))+'</p>';
+ return '<div style="grid-column:1/-1">'+CP.card('Balance âgée clients',body,rows.length?CP.btn('Exporter en CSV','plus.agedCsv'):'')+'</div>';
+}
+var v0=CP.V.auto;
+CP.V.auto=function(){var h=v0();var k=h.lastIndexOf('</div>');return h.slice(0,k)+card()+h.slice(k)};
+ACT['plus.agedCsv']=function(){
+ var rows=aged(),L=[['Client'].concat(B).concat(['Total']).join(';')];
+ rows.forEach(function(r){L.push([r.c.replace(/;/g,',')].concat(r.v).concat([r.t]).join(';'))});
+ L.push(['TOTAL'].concat(tot(rows)).concat([rows.reduce(function(a,r){return a+r.t},0)]).join(';'));
+ CP.saveFile('balance-agee-clients.csv','﻿'+L.join('\n'));
+};
+CP.agedBalance=aged;
+})();
+
 </script>
