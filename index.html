@@ -6533,13 +6533,12 @@ ACT['sales.newq']=ACT['inv2.newq'];
 
 /* ---------- styles ---------- */
 var st=document.createElement('style');
-st.textContent='.il{display:grid;grid-template-columns:minmax(0,2.2fr) 70px 100px minmax(0,1.3fr) 34px;gap:6px;margin-bottom:6px;align-items:center}'
+st.textContent='.il{display:grid;grid-template-columns:70px minmax(0,1fr) minmax(0,1.2fr) 34px;gap:6px;margin-bottom:10px;align-items:center}.il [data-f=d]{grid-column:1/-1}'
 +'.il-h{display:flex;justify-content:space-between;align-items:baseline;margin-top:12px}.il-h small{color:var(--muted)}'
 +'#invT,.pp-tot#invT{display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:flex-end;margin:10px 0}'
 +'.il2{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line,#e2e8f0)}.il2 .d{min-width:0}.il2 small{display:block;color:var(--muted)}.il2 .inp{width:90px}'
 +'.fne-ok{display:flex;gap:14px;align-items:center;margin-top:16px;padding:12px;border:1px solid #16a34a;border-radius:10px;background:#f0fdf4;color:#0f172a}.fne-ok span,.fne-ok small{display:block;font-size:12px}.fne-ok .ok{display:flex;align-items:center;gap:6px;color:#15803d;margin-bottom:4px}.fne-ok .fq{background:#fff;padding:4px;border-radius:6px;flex:none}.fne-ok .fq svg{display:block}'
-+'.fne-draft{color:#b45309}.fne-err{margin:10px 0 16px 18px;display:grid;gap:6px}.fne-busy{text-align:center;padding:18px 6px}.fne-busy .spin{width:34px;height:34px;margin:0 auto 12px;border:3px solid #cbd5e1;border-top-color:#2563eb;border-radius:50%;animation:fnesp .8s linear infinite}@keyframes fnesp{to{transform:rotate(360deg)}}'
-+'@media (max-width:560px){.il{grid-template-columns:1fr 1fr 34px}.il [data-f=d]{grid-column:1/-1}.il [data-f=t]{grid-column:1/3}}';
++'.fne-draft{color:#b45309}.fne-err{margin:10px 0 16px 18px;display:grid;gap:6px}.fne-busy{text-align:center;padding:18px 6px}.fne-busy .spin{width:34px;height:34px;margin:0 auto 12px;border:3px solid #cbd5e1;border-top-color:#2563eb;border-radius:50%;animation:fnesp .8s linear infinite}@keyframes fnesp{to{transform:rotate(360deg)}}';
 document.head.appendChild(st);
 })();
 
@@ -6670,6 +6669,212 @@ st.textContent='.fneq{position:fixed;right:16px;bottom:16px;z-index:60;display:f
 +'.fq-row{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line,#e2e8f0)}.fq-row small{display:block;color:var(--muted)}.fq-row .m{color:#b91c1c}.fq-a{display:flex;gap:6px;flex-wrap:wrap}';
 document.head.appendChild(st);
 setTimeout(badge,1500);
+})();
+
+
+/* ===== Sprint 4 – noyau commun : ajout de rubriques de menu par les modules ===== */
+(function(){"use strict";
+var CP=window.CP;
+/* CP.addNav({id,l,i,b?}, afterId, roles) : ajoute une rubrique (menu, recherche, droits). roles : noms de rôle ayant accès (Gérant / Admin toujours inclus). */
+CP.addNav=function(item,afterId,roles){
+ if(CP.NAV.some(function(n){return n.id===item.id}))return;
+ var k=-1;CP.NAV.forEach(function(n,x){if(n.id===afterId)k=x});
+ CP.NAV.splice(k<0?CP.NAV.length:k+1,0,Object.assign({k:item.l},item));
+ ['Gérant / Admin','Administrateur'].concat(roles||[]).forEach(function(r){var a=CP.ROLE_MODS[r];if(a&&a.indexOf(item.id)<0)a.push(item.id)});
+ if(CP.S&&CP.S.members)CP.S.members.forEach(function(m){if(/Admin|Gérant/i.test(m.role)&&m.mods&&m.mods.indexOf(item.id)<0)m.mods.push(item.id)});
+};
+})();
+
+/* ===== Sprint 4 – Automatisation comptable (écritures auto, lettrage, récurrentes, relances, contrôles, verrouillage) ===== */
+(function(){"use strict";
+var CP=window.CP,ACT=CP.ACT,esc=CP.esc,t=function(s){return CP.t(s)},tf=CP.tf,by=CP.by;
+function S(){return CP.S}
+function AU(){var s=S();s.auto=s.auto||{};var a=s.auto;a.on=a.on||{sales:false,pay:false,letter:false};a.map=a.map||{};a.rec=a.rec||[];a.fu=a.fu||{};a.lc=a.lc||0;a.from=a.from||CP.fy().from;return a}
+function money(n){return CP.money(n)}
+function vatOn(){var r=(S().company||{}).regime;return !r||r==='RNI'||r==='RSI'}
+function entExists(id){return !!id&&(S().entries||[]).some(function(e){return e.id===id})}
+function mk(date,j,label,lines,o){
+ var e={id:CP.entNum(),date:date,j:j,label:label,lines:lines,st:'valid',tiers:(o&&o.tiers)||'',ref:(o&&o.ref)||'',src:'auto',log:[{d:CP.today(),x:t('Générée automatiquement')}]};
+ CP.entRecalc(e);S().entries.unshift(e);return e;
+}
+function isCash(p){return /esp|cash|caisse/i.test(String(p||''))}
+
+/* ---------- 1. Écritures automatiques depuis les factures et encaissements ---------- */
+function sync(silent){
+ var s=S(),a=AU(),n={s:0,p:0,blocked:0};
+ if(!s||!s.inv)return n;
+ s.inv.forEach(function(i){
+  if(i.type==='quote'||!i.id||(i.date||'')<a.from)return;
+  var m=a.map[i.id]||(a.map[i.id]={});
+  if(a.on.sales&&!entExists(m.s)){
+   if(CP.canPost(i.date)){n.blocked++}
+   else{
+    var ttc=Math.abs(i.amount||0);if(!ttc)return;
+    var sp=vatOn()?CP.splitTTC(ttc):{ht:ttc,tva:0},cr=i.type==='credit',L=[];
+    if(!cr){L.push({acc:'411',label:i.client,d:ttc,c:0},{acc:'701',label:i.id,d:0,c:sp.ht});if(sp.tva)L.push({acc:'4431',label:'TVA facturée',d:0,c:sp.tva})}
+    else{L.push({acc:'701',label:i.id,d:sp.ht,c:0});if(sp.tva)L.push({acc:'4431',label:'TVA facturée',d:sp.tva,c:0});L.push({acc:'411',label:i.client,d:0,c:ttc})}
+    m.s=mk(i.date,'VT',(cr?'Avoir ':'Facture ')+i.id+' – '+i.client,L,{tiers:i.client,ref:i.id}).id;n.s++;
+   }
+  }
+  if(a.on.pay&&i.type!=='credit'&&i.st==='paid'&&!entExists(m.p)){
+   var d=i.paidAt||i.date;
+   if(CP.canPost(d)){n.blocked++}
+   else{
+    var v=Math.abs(i.amount||0);if(!v)return;
+    m.p=mk(d,isCash(i.pay)?'CA':'BQ','Encaissement '+i.id+' – '+i.client,[{acc:isCash(i.pay)?'571':'521',label:i.client,d:v,c:0},{acc:'411',label:i.client,d:0,c:v}],{tiers:i.client,ref:i.id}).id;n.p++;
+   }
+  }
+ });
+ if(a.on.letter)n.l=letter();
+ if(n.s||n.p||n.l){CP.log(tf('Automatisation : {0} écriture(s) de vente, {1} d’encaissement, {2} lettrage(s)',n.s,n.p,n.l||0));if(!silent)CP.toast(tf('{0} écriture(s) générée(s)',n.s+n.p),'win');inner=true;CP.save();inner=false}
+ return n;
+}
+
+/* ---------- 2. Lettrage automatique (clients 411 / fournisseurs 401) ---------- */
+function code(k){var s='';k++;while(k>0){var r=(k-1)%26;s=String.fromCharCode(65+r)+s;k=Math.floor((k-1)/26)}return s}
+function letter(){
+ var a=AU(),g={},cnt=0;
+ S().entries.forEach(function(e){(e.lines||[]).forEach(function(l){
+  if((l.acc!=='411'&&l.acc!=='401')||l.let)return;
+  var k=l.acc+'|'+(e.tiers||'');(g[k]=g[k]||{d:[],c:[]})[l.d?'d':'c'].push(l);
+ })});
+ Object.keys(g).forEach(function(k){
+  var x=g[k],c=x.c.slice();
+  x.d.forEach(function(dl){
+   var j=-1;for(var q=0;q<c.length;q++)if((c[q].c||0)===(dl.d||0)){j=q;break}
+   if(j>=0){var cd=code(a.lc++);dl.let=cd;c[j].let=cd;c.splice(j,1);cnt++}
+  });
+  var rd=x.d.filter(function(l){return!l.let}),rc=x.c.filter(function(l){return!l.let});
+  var sd=CP.sum(rd,function(l){return l.d||0}),sc=CP.sum(rc,function(l){return l.c||0});
+  if(rd.length&&rc.length&&sd===sc){var cd2=code(a.lc++);rd.concat(rc).forEach(function(l){l.let=cd2});cnt++}
+ });
+ return cnt;
+}
+
+/* ---------- 3. Écritures récurrentes ---------- */
+function addMonth(iso,day){var d=new Date(iso+'T00:00:00');d.setMonth(d.getMonth()+1,1);var last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last));return CP.iso?CP.iso(d):d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)}
+function runRec(){
+ var a=AU(),n=0,td=CP.today();
+ a.rec.forEach(function(r){
+  var g=0;
+  while(r.on!==false&&r.next<=td&&(!r.end||r.next<=r.end)&&g++<24){
+   if(CP.canPost(r.next))break;
+   mk(r.next,r.j,r.label,[{acc:r.dr,label:r.label,d:r.amt,c:0},{acc:r.cr,label:r.label,d:0,c:r.amt}]);n++;
+   r.next=addMonth(r.next,r.day);
+  }
+ });
+ if(n){CP.log(tf('Écritures récurrentes générées : {0}',n));inner=true;CP.save();inner=false}
+ return n;
+}
+
+/* ---------- 4. Relances clients ---------- */
+function overdue(){
+ var td=CP.today(),by0={};
+ (S().inv||[]).forEach(function(i){
+  if(i.type!=='inv'||i.st==='paid'||!i.due||i.due>=td)return;
+  var days=Math.round((new Date(td)-new Date(i.due))/864e5),g=by0[i.client]=by0[i.client]||{client:i.client,list:[],tot:0,max:0};
+  g.list.push({id:i.id,due:i.due,amt:i.amount,days:days});g.tot+=i.amount;g.max=Math.max(g.max,days);
+ });
+ return Object.keys(by0).map(function(k){return by0[k]}).sort(function(x,y){return y.max-x.max});
+}
+function level(d){return d>=30?3:d>=15?2:1}
+function msg(g){
+ var co=(S().company&&S().company.name)||'notre société',lv=level(g.max),L=g.list.map(function(x){return '- '+x.id+' du '+CP.dfmt(x.due)+' : '+money(x.amt)+' ('+x.days+' jours de retard)'}).join('\n');
+ var h=lv===1?'Bonjour '+g.client+',\n\nSauf erreur de notre part, les factures suivantes sont arrivées à échéance :\n':
+  lv===2?'Bonjour '+g.client+',\n\nMalgré notre précédent rappel, les factures suivantes restent impayées :\n':
+  'Madame, Monsieur,\n\nNos rappels étant restés sans effet, nous vous mettons en demeure de régler les factures suivantes sous 8 jours :\n';
+ return h+L+'\n\nTotal dû : '+money(g.tot)+'\n\nMerci de procéder au règlement ou de nous contacter en cas de difficulté.\n\n'+co;
+}
+function clientOf(n){return (S().clients||[]).filter(function(c){return c.name===n})[0]||{}}
+
+/* ---------- 5. Contrôles de cohérence ---------- */
+function checks(){
+ var s=S(),a=AU(),o=[];
+ var ub=s.entries.filter(function(e){return e.d!==e.c}).length;
+ o.push({ok:!ub,x:ub?tf('{0} écriture(s) déséquilibrée(s) (débit ≠ crédit)',ub):t('Toutes les écritures sont équilibrées')});
+ var pd=s.entries.filter(function(e){return e.st==='pending'}).length;
+ o.push({ok:!pd,x:pd?tf('{0} écriture(s) à valider',pd):t('Aucune écriture en attente de validation')});
+ var unk=0;s.entries.forEach(function(e){(e.lines||[]).forEach(function(l){if(!CP.coaGet(l.acc))unk++})});
+ o.push({ok:!unk,x:unk?tf('{0} ligne(s) sur un compte absent du plan comptable',unk):t('Tous les comptes existent dans le plan comptable')});
+ var miss=(s.inv||[]).filter(function(i){return i.type!=='quote'&&(i.date||'')>=a.from&&!entExists((a.map[i.id]||{}).s)&&!s.entries.some(function(e){return e.ref===i.id})}).length;
+ o.push({ok:!miss,x:miss?tf('{0} facture(s) sans écriture comptable',miss):t('Toutes les factures ont leur écriture')});
+ var diff=0;(s.inv||[]).forEach(function(i){var m=a.map[i.id],e=m&&by(s.entries,m.s);if(e&&e.lines){var l=e.lines.filter(function(x){return x.acc==='411'})[0];if(l&&Math.abs((l.d||0)-(l.c||0))!==Math.abs(i.amount||0))diff++}});
+ o.push({ok:!diff,x:diff?tf('{0} facture(s) modifiée(s) depuis leur écriture : contrepasse puis régénère',diff):t('Montants des factures cohérents avec les écritures')});
+ var un=0;s.entries.forEach(function(e){(e.lines||[]).forEach(function(l){if(l.acc==='411'&&!l.let)un++})});
+ o.push({ok:true,info:true,x:tf('{0} ligne(s) client non lettrée(s) (normal pour les factures impayées)',un)});
+ o.push({ok:!!s.lockedTo,info:true,x:s.lockedTo?tf('Période verrouillée jusqu’au {0}',CP.dfmt(s.lockedTo)):t('Aucune période verrouillée')});
+ return o;
+}
+
+/* ---------- Vue ---------- */
+function tog(k,label,sub){var on=AU().on[k];return '<div class="au-row"><div><b>'+esc(t(label))+'</b><small>'+esc(t(sub))+'</small></div><button class="btn'+(on?' pri':'')+'" role="switch" aria-checked="'+on+'" data-act="auto.tog" data-id="'+k+'">'+esc(on?t('Activé'):t('Désactivé'))+'</button></div>'}
+CP.V.auto=function(){
+ var s=S(),a=AU(),h=CP.head('auto','Les écritures se font toutes seules : tu contrôles, tu ne ressaisis plus.',CP.btn('Lancer maintenant','auto.run',{k:'pri',i:'calc'}));
+ var ov=overdue(),ck=checks(),rec=a.rec;
+ var c1=CP.card('Règles automatiques',
+  '<p class="sub">'+esc(t('Même principe qu’Odoo : une facture ou un encaissement crée tout seul son écriture. À partir de la date ci-dessous uniquement.'))+'</p>'
+  +'<div class="au-row"><div><b>'+esc(t('Générer à partir du'))+'</b><small>'+esc(t('Les pièces plus anciennes ne sont pas touchées'))+'</small></div><input id="au-from" type="date" value="'+esc(a.from)+'" data-act="auto.from" aria-label="'+esc(t('Date de départ'))+'"></div>'
+  +tog('sales','Ventes → écritures','Facture : 411 Clients / 701 Ventes / 4431 TVA (selon le régime). Avoir : écriture inverse.')
+  +tog('pay','Encaissements → écritures','Facture payée : 521 Banque ou 571 Caisse / 411 Clients')
+  +tog('letter','Lettrage automatique','Rapproche facture et règlement du même client (même montant)')
+  +(vatOn()?'':'<p class="hint">'+esc(t('Régime sans TVA : aucune TVA n’est comptabilisée.'))+'</p>'));
+ var c2=CP.card('Écritures récurrentes',
+  (rec.length?'<div class="au-list">'+rec.map(function(r,k){return '<div class="au-row"><div><b>'+esc(r.label)+'</b><small>'+esc(money(r.amt)+' · '+r.dr+' / '+r.cr+' · '+tf('le {0} du mois, prochaine : {1}',r.day,CP.dfmt(r.next)))+'</small></div><button class="btn" data-act="auto.recDel" data-id="'+k+'">'+esc(t('Supprimer'))+'</button></div>'}).join('')+'</div>':'<p class="sub">'+esc(t('Loyer, abonnements, amortissements… : crée-les une fois, elles se génèrent chaque mois.'))+'</p>'),
+  CP.btn('Nouvelle récurrente','auto.recNew'));
+ var c3=CP.card('Relances clients',
+  ov.length?'<div class="au-list">'+ov.map(function(g,k){var c=clientOf(g.client);return '<div class="au-row"><div><b>'+esc(g.client)+'</b><small>'+esc(tf('{0} facture(s) · {1} · jusqu’à {2} jours de retard',g.list.length,money(g.tot),g.max))+(a.fu[g.client]?' · '+esc(tf('relancé le {0}',CP.dfmt(a.fu[g.client]))):'')+'</small></div><span>'+CP.pill(level(g.max)===1?'info':level(g.max)===2?'warn':'err',['','Rappel','Relance ferme','Mise en demeure'][level(g.max)])+'</span><button class="btn" data-act="auto.fu" data-id="'+k+'">'+esc(t('Préparer'))+'</button></div>'}).join('')+'</div>':'<p class="sub">'+esc(t('Aucune facture en retard. Bravo !'))+'</p>');
+ var c4=CP.card('Contrôles avant clôture',
+  '<div class="au-list">'+ck.map(function(x){return '<div class="au-row"><span aria-hidden="true">'+(x.ok?'✓':x.info?'ℹ':'⚠')+'</span><div style="flex:1">'+esc(x.x)+'</div></div>'}).join('')+'</div>'
+  +'<div class="au-row"><div><b>'+esc(t('Verrouiller la période jusqu’au'))+'</b><small>'+esc(t('Plus aucune écriture possible avant cette date (clôture mensuelle)'))+'</small></div><input id="au-lock" type="date" value="'+esc(s.lockedTo||'')+'" aria-label="'+esc(t('Date de verrouillage'))+'"><button class="btn" data-act="auto.lock">'+esc(t('Appliquer'))+'</button></div>');
+ return h+'<div class="au-grid">'+c1+c2+c3+c4+'</div>';
+};
+ACT['auto.tog']=function(k){var a=AU();if(!CP.isAdmin()&&CP.roleKey&&CP.roleKey()!=='accountant'){CP.toast(t('Réservé au comptable ou à l’administrateur.'),'err');return}
+ a.on[k]=!a.on[k];CP.log('Automatisation '+k+' : '+(a.on[k]?'activée':'désactivée'));CP.save();if(a.on[k]){var n=sync(true);CP.toast(tf('Activé : {0} écriture(s) générée(s)',(n.s||0)+(n.p||0)),'win')}CP.render(false)};
+ACT['auto.from']=function(){var v=CP.$('#au-from').value;if(v){AU().from=v;CP.save()}};
+ACT['auto.run']=function(){var n=sync(true),r=runRec(),a=AU();if(!a.on.sales&&!a.on.pay&&!a.on.letter&&!a.rec.length)CP.toast(t('Active d’abord une règle automatique.'),'err');else CP.toast(tf('{0} écriture(s) générée(s), {1} récurrente(s), {2} lettrage(s)',(n.s||0)+(n.p||0),r,n.l||0),'win');CP.render(false);CP.chrome&&CP.chrome(false)};
+ACT['auto.lock']=function(){var v=CP.$('#au-lock').value;S().lockedTo=v||'';CP.log('Verrouillage de période : '+(v||'levé'));CP.save();CP.toast(v?tf('Période verrouillée jusqu’au {0}',CP.dfmt(v)):t('Verrouillage levé'),'win');CP.render(false)};
+ACT['auto.recDel']=function(k){var a=AU();a.rec.splice(+k,1);CP.save();CP.render(false)};
+ACT['auto.recNew']=function(){
+ CP.modal('<h2>'+esc(t('Nouvelle écriture récurrente'))+'</h2><div class="stack">'
+  +'<label>'+esc(t('Libellé'))+'<input id="ar-l" placeholder="Loyer bureau"></label>'
+  +'<label>'+esc(t('Montant (FCFA)'))+'<input id="ar-a" type="number" min="1" inputmode="numeric"></label>'
+  +'<label>'+esc(t('Compte débité'))+'<input id="ar-d" value="622" inputmode="numeric"></label>'
+  +'<label>'+esc(t('Compte crédité'))+'<input id="ar-c" value="521" inputmode="numeric"></label>'
+  +'<label>'+esc(t('Jour du mois'))+'<input id="ar-j" type="number" min="1" max="31" value="1"></label>'
+  +'<label>'+esc(t('Première date'))+'<input id="ar-n" type="date" value="'+CP.today()+'"></label>'
+  +'<div class="row wrap"><button class="btn" data-close>'+esc(t('Annuler'))+'</button><button class="btn pri" data-act="auto.recSave">'+esc(t('Enregistrer'))+'</button></div></div>');
+};
+ACT['auto.recSave']=function(){
+ var l=CP.$('#ar-l').value.trim(),m=Math.round(+CP.$('#ar-a').value),d=CP.$('#ar-d').value.trim(),c=CP.$('#ar-c').value.trim(),j=Math.min(31,Math.max(1,+CP.$('#ar-j').value||1)),n=CP.$('#ar-n').value;
+ if(!l||!(m>0)||!n){CP.toast(t('Renseigne libellé, montant et date.'),'err');return}
+ if(!CP.coaGet(d)||!CP.coaGet(c)){CP.toast(t('Un des comptes n’existe pas dans le plan comptable.'),'err');return}
+ if(d===c){CP.toast(t('Les deux comptes doivent être différents.'),'err');return}
+ AU().rec.push({label:l,amt:m,dr:d,cr:c,day:j,next:n,j:/^5/.test(c)?'BQ':'OD'});CP.log('Récurrente créée : '+l);CP.save();CP.closeModal();
+ var r=runRec();CP.toast(r?tf('{0} écriture(s) générée(s)',r):t('Récurrente enregistrée'),'win');CP.render(false)};
+ACT['auto.fu']=function(k){
+ var g=overdue()[+k];if(!g)return;var c=clientOf(g.client),m=msg(g),ph=String(c.phone||c.tel||'').replace(/[^\d]/g,'');
+ CP.U.fuMsg=m;CP.U.fuClient=g.client;
+ CP.modal('<h2>'+esc(tf('Relance – {0}',g.client))+'</h2><textarea id="fu-t" rows="12" style="width:100%">'+esc(m)+'</textarea>'
+  +'<div class="row wrap"><button class="btn" data-act="auto.fuCopy">'+esc(t('Copier'))+'</button>'
+  +(ph?'<a class="btn" target="_blank" rel="noopener" data-act="auto.fuMark" href="https://wa.me/'+(ph.length===10?'225'+ph:ph)+'?text='+encodeURIComponent(m)+'">WhatsApp</a>':'')
+  +(c.email?'<a class="btn" data-act="auto.fuMark" href="mailto:'+esc(c.email)+'?subject='+encodeURIComponent('Relance de paiement')+'&body='+encodeURIComponent(m)+'">E-mail</a>':'')
+  +'<button class="btn" data-act="auto.fuMark">'+esc(t('Marquer comme relancé'))+'</button></div>'
+  +(ph||c.email?'':'<p class="hint">'+esc(t('Aucun téléphone ni e-mail sur la fiche de ce client : copie le message.'))+'</p>'));
+};
+ACT['auto.fuCopy']=function(){var v=CP.$('#fu-t').value;try{navigator.clipboard.writeText(v);CP.toast(t('Message copié'),'win')}catch(e){CP.$('#fu-t').select()}};
+ACT['auto.fuMark']=function(){var c=CP.U.fuClient;if(c){AU().fu[c]=CP.today();CP.log('Relance : '+c);CP.save()}setTimeout(function(){CP.closeModal();CP.render(false)},300)};
+
+/* ---------- Déclenchement automatique, léger ---------- */
+var inner=false,tm=0;
+var s0=CP.save;CP.save=function(){var r=s0.apply(this,arguments);if(!inner&&S()&&S().auto&&(S().auto.on.sales||S().auto.on.pay)){clearTimeout(tm);tm=setTimeout(function(){inner=true;try{var n=sync(true);if(n&&(n.s||n.p)&&CP.refresh)CP.refresh()}finally{inner=false}},400)}return r};
+var l0=CP.load;CP.load=function(){l0.apply(this,arguments);setTimeout(function(){if(S()&&S().auto&&S().auto.rec&&S().auto.rec.length){var n=runRec();if(n)CP.toast(tf('{0} écriture(s) récurrente(s) générée(s)',n),'win')}},800)};
+
+/* ---------- Styles ---------- */
+var st=document.createElement('style');st.textContent='.au-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))}.au-row{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.au-row small{display:block;color:var(--muted);font-size:12px}.au-row input{max-width:160px}.au-list{display:block}';
+document.head.appendChild(st);
+
+CP.addNav({id:'auto',l:'Automatisation',i:'calc'},'compta',['Comptable']);
+CP.autoSync=sync;CP.autoLetter=letter;
 })();
 
 </script>
