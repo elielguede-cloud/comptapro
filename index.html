@@ -6978,4 +6978,15 @@ CP.assetPlan=plan;
 CP.addNav({id:'assets',l:'Immobilisations',i:'calc'},'auto',['Comptable']);
 })();
 
+/* ===== Raccourcis clavier masqués partout et retirés des Réglages ===== */
+(function(){"use strict";
+var CP=window.CP;
+function off(){try{if(CP.S&&CP.S.settings&&CP.S.settings.kbd!==false){CP.S.settings.kbd=false}}catch(e){}document.documentElement.setAttribute('data-kbd','off')}
+var l0=CP.load;CP.load=function(){var r=l0.apply(this,arguments);off();return r};
+var s=document.createElement('style');s.textContent='kbd,.kbd-hints{display:none!important}';document.head.appendChild(s);
+var o0=CP.openSettings;CP.openSettings=function(){var r=o0.apply(this,arguments);var b=document.querySelector('#drawer [data-tog="kbd"]');if(b&&b.closest('.set-row'))b.closest('.set-row').remove();return r};
+var c0=CP.chrome;CP.chrome=function(){var r=c0.apply(this,arguments);var i=document.getElementById('search');if(i)i.placeholder=CP.t('Rechercher…');return r};
+off();
+})();
+
 </script>
