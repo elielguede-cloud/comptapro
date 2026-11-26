@@ -6911,4 +6911,71 @@ ACT['plus.agedCsv']=function(){
 CP.agedBalance=aged;
 })();
 
+/* ===== Sprint 4 – Immobilisations & amortissements (registre, plan linéaire, dotations en écritures SYSCOHADA) ===== */
+(function(){"use strict";
+var CP=window.CP,ACT=CP.ACT,esc=CP.esc,t=function(s){return CP.t(s)},tf=CP.tf;
+function L(){var s=CP.S;s.assets=s.assets||[];return s.assets}
+function amAcc(acc){acc=String(acc);var p=acc.slice(0,2),b=p==='21'?'281':p==='22'||p==='23'?'283':'284',c=b+acc.slice(3);return CP.coaGet(c)?c:b}
+function dotAcc(acc){return String(acc).slice(0,2)==='21'?'6812':'6813'}
+/* plan linéaire, prorata temporis au jour (année de 360 j, mois de 30 j) */
+function plan(a){
+ var d=new Date(a.date+'T00:00:00'),y=d.getFullYear(),m=d.getMonth()+1,j=Math.min(30,d.getDate());
+ var first=(12-m)+(30-j+1)/30,tot=a.years,rows=[],cum=0,yrs=a.years*12; /* durée en mois */
+ var perM=a.amount/yrs,left=yrs,k=0,mm=Math.min(first,left);
+ while(left>1e-9){
+  var v=Math.round(perM*mm);left-=mm;if(left<1e-9)v=a.amount-cum;
+  rows.push({y:y+k,dot:v,cum:cum+v,vnc:a.amount-cum-v});cum+=v;k++;mm=Math.min(12,left);
+ }
+ return rows;
+}
+function isDone(a,y){return !!(a.dot&&a.dot[y]&&(CP.S.entries||[]).some(function(e){return e.id===a.dot[y]}))}
+function cumTo(a,y){var c=0;plan(a).forEach(function(r){if(r.y<=y)c=r.cum});return c}
+CP.V.assets=function(){
+ var A=L(),y=new Date().getFullYear(),tot=CP.sum(A,function(a){return a.amount}),cum=CP.sum(A,function(a){return cumTo(a,y-1)});
+ var h=CP.head('assets','Registre des immobilisations, plan d’amortissement et écritures de dotation.',CP.btn('Nouvelle immobilisation','as.new',{k:'pri'})+CP.btn('Passer les dotations','as.dot'));
+ var body=A.length?'<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:13px"><thead><tr><th>'+esc(t('Immobilisation'))+'</th><th>'+esc(t('Compte'))+'</th><th>'+esc(t('Mise en service'))+'</th><th style="text-align:right">'+esc(t('Valeur'))+'</th><th>'+esc(t('Durée'))+'</th><th style="text-align:right">'+esc(tf('Dotation {0}',y))+'</th><th style="text-align:right">'+esc(tf('VNC fin {0}',y))+'</th><th></th></tr></thead><tbody>'
+  +A.map(function(a,k){var p=plan(a),r=p.filter(function(x){return x.y===y})[0];return '<tr><td>'+esc(a.name)+'</td><td>'+esc(a.acc)+'</td><td>'+esc(CP.dfmt(a.date))+'</td><td style="text-align:right">'+CP.money(a.amount)+'</td><td>'+a.years+' '+esc(t('ans'))+'</td><td style="text-align:right">'+(r?CP.money(r.dot):'–')+(isDone(a,y)?' ✓':'')+'</td><td style="text-align:right">'+CP.money(a.amount-cumTo(a,y))+'</td><td><button class="btn sm" data-act="as.plan" data-id="'+k+'">'+esc(t('Plan'))+'</button> <button class="btn sm" data-act="as.del" data-id="'+k+'">'+esc(t('Supprimer'))+'</button></td></tr>'}).join('')+'</tbody></table></div>'
+  :'<p class="sub">'+esc(t('Aucune immobilisation. Ajoute un véhicule, du matériel informatique, un mobilier… Le plan d’amortissement se calcule seul.'))+'</p>';
+ return h+CP.card('Registre',body,A.length?'<span class="sub">'+esc(tf('Valeur brute {0} · amortissements cumulés fin {1} : {2}',CP.money(tot),y-1,CP.money(cum)))+'</span>':'');
+};
+ACT['as.new']=function(){
+ CP.modal('<h2>'+esc(t('Nouvelle immobilisation'))+'</h2><div class="stack">'
+ +'<label>'+esc(t('Désignation'))+'<input id="as-n" placeholder="Ordinateur portable"></label>'
+ +'<label>'+esc(t('Compte d’immobilisation'))+'<input id="as-a" value="2444" inputmode="numeric"></label>'
+ +'<label>'+esc(t('Valeur d’acquisition HT (FCFA)'))+'<input id="as-v" type="number" min="1" inputmode="numeric"></label>'
+ +'<label>'+esc(t('Date de mise en service'))+'<input id="as-d" type="date" value="'+CP.today()+'"></label>'
+ +'<label>'+esc(t('Durée d’amortissement (années)'))+'<input id="as-y" type="number" min="1" max="50" value="5"></label>'
+ +'<p class="hint">'+esc(t('Amortissement linéaire, prorata temporis au jour, exercice = année civile. Vérifie la durée avec ton comptable.'))+'</p>'
+ +'<div class="row wrap"><button class="btn" data-close>'+esc(t('Annuler'))+'</button><button class="btn pri" data-act="as.save">'+esc(t('Enregistrer'))+'</button></div></div>');
+};
+ACT['as.save']=function(){
+ var n=CP.$('#as-n').value.trim(),a=CP.$('#as-a').value.trim(),v=Math.round(+CP.$('#as-v').value),d=CP.$('#as-d').value,y=Math.round(+CP.$('#as-y').value);
+ if(!n||!(v>0)||!d||!(y>0)){CP.toast(t('Renseigne désignation, valeur, date et durée.'),'err');return}
+ if(!/^2[1-4]/.test(a)||!CP.coaGet(a)){CP.toast(t('Compte d’immobilisation invalide (classe 21 à 24).'),'err');return}
+ L().push({name:n,acc:a,amount:v,date:d,years:y,dot:{}});CP.log('Immobilisation créée : '+n);CP.save();CP.closeModal();CP.render(false);CP.toast(t('Immobilisation enregistrée'),'win');
+};
+ACT['as.del']=function(k){var a=L()[+k];if(!a)return;if(Object.keys(a.dot||{}).length){CP.toast(t('Des dotations sont déjà comptabilisées : contrepasse-les d’abord dans le journal.'),'err');return}L().splice(+k,1);CP.save();CP.render(false)};
+ACT['as.plan']=function(k){
+ var a=L()[+k];if(!a)return;var p=plan(a);
+ CP.modal('<h2>'+esc(a.name)+'</h2><div style="overflow-x:auto"><table class="tbl" style="width:100%"><thead><tr><th>'+esc(t('Année'))+'</th><th style="text-align:right">'+esc(t('Dotation'))+'</th><th style="text-align:right">'+esc(t('Cumul'))+'</th><th style="text-align:right">VNC</th></tr></thead><tbody>'+p.map(function(r){return '<tr><td>'+r.y+'</td><td style="text-align:right">'+CP.money(r.dot)+'</td><td style="text-align:right">'+CP.money(r.cum)+'</td><td style="text-align:right">'+CP.money(r.vnc)+'</td></tr>'}).join('')+'</tbody></table></div><div class="row wrap"><button class="btn" data-close>'+esc(t('Fermer'))+'</button><button class="btn" data-act="as.csv" data-id="'+k+'">CSV</button></div>');
+};
+ACT['as.csv']=function(k){var a=L()[+k];if(!a)return;CP.saveFile('amortissement-'+a.name.replace(/\W+/g,'_')+'.csv','﻿'+['Année;Dotation;Cumul;VNC'].concat(plan(a).map(function(r){return [r.y,r.dot,r.cum,r.vnc].join(';')})).join('\n'))};
+ACT['as.dot']=function(){
+ var y=new Date().getFullYear();
+ CP.modal('<h2>'+esc(t('Passer les dotations aux amortissements'))+'</h2><p class="sub">'+esc(t('Une écriture par immobilisation, datée du 31 décembre de l’année choisie : 681x au débit, 28x au crédit. Impossible de la passer deux fois.'))+'</p><label>'+esc(t('Année'))+'<input id="as-yr" type="number" value="'+y+'"></label><div class="row wrap"><button class="btn" data-close>'+esc(t('Annuler'))+'</button><button class="btn pri" data-act="as.dotGo">'+esc(t('Comptabiliser'))+'</button></div>');
+};
+ACT['as.dotGo']=function(){
+ var y=Math.round(+CP.$('#as-yr').value),date=y+'-12-31',n=0,blocked=0;
+ var err=CP.canPost(date);if(err){CP.toast(err,'err');return}
+ L().forEach(function(a){
+  if(isDone(a,y))return;var r=plan(a).filter(function(x){return x.y===y})[0];if(!r||!r.dot)return;
+  var e={id:CP.entNum(),date:date,j:'OD',label:'Dotation amortissement '+y+' – '+a.name,lines:[{acc:dotAcc(a.acc),label:a.name,d:r.dot,c:0},{acc:amAcc(a.acc),label:a.name,d:0,c:r.dot}],st:'valid',src:'auto',log:[{d:CP.today(),x:t('Générée automatiquement')}]};
+  CP.entRecalc(e);CP.S.entries.unshift(e);a.dot=a.dot||{};a.dot[y]=e.id;n++;
+ });
+ CP.log(tf('Dotations {0} : {1} écriture(s)',y,n));CP.save();CP.closeModal();CP.toast(n?tf('{0} écriture(s) de dotation passée(s)',n):t('Rien à comptabiliser pour cette année.'),n?'win':'info');CP.render(false);CP.chrome&&CP.chrome(false);
+};
+CP.assetPlan=plan;
+CP.addNav({id:'assets',l:'Immobilisations',i:'calc'},'auto',['Comptable']);
+})();
+
 </script>
