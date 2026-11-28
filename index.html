@@ -6874,6 +6874,7 @@ var st=document.createElement('style');st.textContent='.au-grid{display:grid;gap
 document.head.appendChild(st);
 
 CP.addNav({id:'auto',l:'Automatisation',i:'calc'},'compta',['Comptable']);
+CP.autoRelance=function(n){var o=overdue();for(var i=0;i<o.length;i++)if(o[i].client===n)return ACT['auto.fu'](i);CP.toast(t('Aucune facture en retard pour ce client.'),'info')};
 CP.autoSync=sync;CP.autoLetter=letter;
 })();
 
@@ -7062,6 +7063,190 @@ var s=document.createElement('style');s.textContent=[
 '}',
 '@media (min-width:901px) and (max-width:1180px){.top .wschip span,.top .syncchip span{display:none}.tabs2 button{padding:8px 11px}.top .searchbox{max-width:150px}}'
 ].join('\n');document.head.appendChild(s);
+})();
+
+/* ===== Clients : fiche complète (identité, conditions, solde, retards, factures, produits, notes, historique) ===== */
+(function(){"use strict";
+var CP=window.CP,ACT=CP.ACT,esc=CP.esc,t=function(s){return CP.t(s)},tf=CP.tf,ic=CP.ic,by=CP.by;
+function S(){return CP.S}
+function mon(n){return CP.money(n)}
+function sgn(i){return i.type==='credit'?-Math.abs(i.amount||0):(i.amount||0)}
+function dd(a,b){return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/864e5)}
+var BK=['Non échu','1–30 j','31–60 j','61–90 j','+ 90 j'];
+function stats(c){
+ var td=CP.today(),all=(S().inv||[]).filter(function(i){return i.client===c.name}),inv=all.filter(function(i){return i.type==='inv'});
+ var r={all:all,inv:inv,n:inv.length,hist:c.hist||0};
+ r.ca=r.hist+all.filter(function(i){return i.type!=='quote'}).reduce(function(a,i){return a+sgn(i)},0);
+ var y=td.slice(0,4);r.caY=all.filter(function(i){return i.type!=='quote'&&(i.date||'').slice(0,4)===y}).reduce(function(a,i){return a+sgn(i)},0);
+ var open=inv.filter(function(i){return i.st!=='paid'});
+ r.unpaid=open.reduce(function(a,i){return a+i.amount},0);
+ r.paid=inv.filter(function(i){return i.st==='paid'}).reduce(function(a,i){return a+i.amount},0);
+ r.bk=[0,0,0,0,0];r.late=0;r.maxLate=0;
+ open.forEach(function(i){var d=dd(i.due||i.date,td);r.bk[d<=0?0:d<=30?1:d<=60?2:d<=90?3:4]+=i.amount;if(d>0){r.late+=i.amount;r.maxLate=Math.max(r.maxLate,d)}});
+ var dl=inv.filter(function(i){return i.st==='paid'&&i.paidAt&&i.date}).map(function(i){return dd(i.date,i.paidAt)});
+ r.avgDelay=dl.length?Math.round(dl.reduce(function(a,b){return a+b},0)/dl.length):null;
+ var last=inv.map(function(i){return i.date}).sort().pop();r.last=last||'';
+ r.first=c.since||(inv.map(function(i){return i.date}).sort()[0])||'';
+ r.avgBasket=r.n?Math.round(inv.reduce(function(a,i){return a+i.amount},0)/r.n):0;
+ r.rank=r.ca>=8e6?'A':(r.ca>=3e6?'B':'C');
+ var term=+c.terms||30;
+ r.risk=r.maxLate>30?['err','Risque élevé']:r.late>0?['warn','À surveiller']:(r.avgDelay!=null&&r.avgDelay>term+7)?['warn','Paie lentement']:r.n?['good','Bon payeur']:['info','Nouveau'];
+ r.limit=c.limit||0;
+ return r;
+}
+function months(inv){
+ var o=[],d=new Date();d.setDate(1);
+ for(var k=11;k>=0;k--){var x=new Date(d.getFullYear(),d.getMonth()-k,1),key=x.getFullYear()+'-'+('0'+(x.getMonth()+1)).slice(-2);o.push({k:key,l:['J','F','M','A','M','J','J','A','S','O','N','D'][x.getMonth()],v:0})}
+ inv.forEach(function(i){var m=(i.date||'').slice(0,7);o.forEach(function(b){if(b.k===m&&i.type!=='quote')b.v+=sgn(i)})});
+ return o;
+}
+function chart(inv){
+ var m=months(inv),mx=Math.max.apply(null,m.map(function(b){return b.v}).concat([1])),w=480,h=150,bw=22,g=(w-m.length*bw)/(m.length+1);
+ return '<svg viewBox="0 0 '+w+' '+(h+22)+'" style="width:100%;height:auto" role="img" aria-label="'+esc(t('Chiffre d’affaires des 12 derniers mois'))+'">'+m.map(function(b,i){var bh=Math.max(b.v>0?3:0,Math.round(b.v/mx*h)),x=g+i*(bw+g);return '<rect x="'+x+'" y="'+(h-bh)+'" width="'+bw+'" height="'+bh+'" rx="7" fill="var(--acc)" opacity="'+(i===m.length-1?1:.55)+'"><title>'+esc(b.k+' : '+mon(b.v))+'</title></rect><text x="'+(x+bw/2)+'" y="'+(h+16)+'" text-anchor="middle" font-size="11" fill="var(--muted)">'+b.l+'</text>'}).join('')+'</svg>';
+}
+function kv(k,v){return '<div class="c2-kv"><span>'+esc(t(k))+'</span><b>'+(v||'<i class="c2-na">'+esc(t('Non renseigné'))+'</i>')+'</b></div>'}
+function phone10(p){var d=String(p||'').replace(/[^\d+]/g,'').replace(/^\+?225/,'').replace(/^00225/,'');return d}
+function waLink(p){var d=phone10(p);return d.length===10?'https://wa.me/225'+d:''}
+
+/* ---------- Liste ---------- */
+CP.V.clients=function(){
+ var s=S(),rows=function(){return s.clients.map(function(c){var x=stats(c);return Object.assign({},c,x,{riskT:x.risk[1],riskK:x.risk[0]})})},all=rows();
+ var best=all.slice().sort(function(a,b){return b.ca-a.ca})[0];
+ var h=CP.head('clients','Clique sur un client pour ouvrir sa fiche complète : coordonnées, solde, retards, factures, produits, notes.',CP.btn('Importer','cli.import',{i:'upload'})+CP.btn('Exporter','cli.export',{i:'download'})+CP.btn('Ajouter un client','cli.new',{k:'primary',i:'userplus'}));
+ h+='<div class="tiles">'+CP.tile('user','','Clients','<span>'+all.length+'</span>')+CP.tile('up','g','Meilleur client','<span style="font-size:.75em">'+esc(best?best.name:'—')+'</span>',best?mon(best.ca):'')+CP.tile('alert','c','Avec impayés','<span>'+all.filter(function(c){return c.unpaid>0}).length+'</span>',mon(CP.sum(all,function(c){return c.unpaid})),'down')+CP.tile('alert','w','Montant en retard',CP.mEl(CP.sum(all,function(c){return c.late})))+CP.tile('chart','w','CA cumulé',CP.mEl(CP.sum(all,function(c){return c.ca})))+'</div>';
+ h+=CP.card('Fiches clients',CP.table('clients',{
+  sort:['ca',-1],empty:'Aucun client. Ajoute le premier !',rows:rows,
+  chips:[['all','Tous'],['A','A'],['B','B'],['C','C'],['unpaid','Avec impayés'],['late','En retard']],chip:function(r,v){return v==='unpaid'?r.unpaid>0:v==='late'?r.late>0:r.rank===v},
+  cols:[{k:'name',l:'Client',v:function(r){return r.name+' '+(r.contact||'')+' '+(r.phone||'')+' '+(r.email||'')},f:function(r){return '<b>'+esc(r.name)+'</b><small>'+esc([r.contact,r.phone].filter(Boolean).join(' · '))+'</small>'}},{k:'city',l:'Ville'},{k:'ca',l:'CA cumulé',t:'money'},
+   {k:'unpaid',l:'Impayé',t:'money',f:function(r){return r.unpaid?'<span class="out">'+mon(r.unpaid)+'</span>':mon(0)}},
+   {k:'avgDelay',l:'Délai moyen',v:function(r){return r.avgDelay==null?-1:r.avgDelay},f:function(r){return r.avgDelay==null?'–':r.avgDelay+' '+t('j')}},
+   {k:'riskT',l:'Paiement',f:function(r){return CP.pill(r.riskK,r.riskT)}},
+   {k:'rank',l:'Classement',f:function(r){return CP.pill({A:'good',B:'warn',C:'info'}[r.rank],r.rank)}}],
+  act:function(){return[['cli.open','eye','Ouvrir la fiche'],['cli.inv','receipt','Créer une facture'],['cli.del','trash','Supprimer',1]]}}));
+ return h;
+};
+
+/* ---------- Fiche ---------- */
+CP.V.client=function(){
+ var c=by(S().clients,CP.U.cid);
+ if(!c)return '<section class="card"><h2>'+esc(t('Client introuvable'))+'</h2><button class="btn" data-go="clients">'+esc(t('Retour aux clients'))+'</button></section>';
+ var x=stats(c),wa=waLink(c.phone||c.whatsapp),ph=phone10(c.phone),td=CP.today();
+ var h='<div class="c2-top"><button class="btn" data-go="clients">'+'← '+esc(t('Clients'))+'</button></div>';
+ h+='<section class="c2-hero"><div class="c2-av">'+esc((c.name||'?').trim().charAt(0).toUpperCase())+'</div><div class="c2-id"><h1>'+esc(c.name)+'</h1><p class="sub">'+esc([c.type||'Entreprise',c.sector,c.city,c.country].filter(Boolean).join(' · '))+'</p><div class="c2-tags">'+CP.pill(x.risk[0],x.risk[1])+CP.pill({A:'good',B:'warn',C:'info'}[x.rank],tf('Classement {0}',x.rank))+(c.tags?String(c.tags).split(',').map(function(g){return g.trim()}).filter(Boolean).map(function(g){return '<span class="c2-tag">'+esc(g)+'</span>'}).join(''):'')+'</div></div><div class="actions">'
+  +CP.btn('Créer une facture','cli.inv',{k:'primary',id:c.id,i:'receipt'})+CP.btn('Modifier la fiche','cli.edit',{id:c.id,i:'edit'})
+  +(x.late>0?CP.btn('Relancer','cli.relance',{id:c.id,i:'alert'}):'')
+  +(wa?'<a class="btn" target="_blank" rel="noopener" href="'+wa+'">WhatsApp</a>':'')+(ph?'<a class="btn" href="tel:+225'+ph+'">'+esc(t('Appeler'))+'</a>':'')+(c.email?'<a class="btn" href="mailto:'+esc(c.email)+'">E-mail</a>':'')+'</div></section>';
+ h+='<div class="tiles">'
+  +CP.tile('up','g','CA cumulé',CP.mEl(x.ca),tf('{0} factures · panier moyen {1}',x.n,mon(x.avgBasket)))
+  +CP.tile('chart','','CA de l’année',CP.mEl(x.caY))
+  +CP.tile('bank','','Encaissé',CP.mEl(x.paid))
+  +CP.tile('alert','c','Reste à payer',CP.mEl(x.unpaid),x.limit?tf('Plafond {0} · {1} % utilisé',mon(x.limit),Math.round(x.unpaid/x.limit*100)):'',x.limit&&x.unpaid>x.limit?'down':'')
+  +CP.tile('alert','w','En retard',CP.mEl(x.late),x.maxLate?tf('jusqu’à {0} jours',x.maxLate):t('Aucun retard'),x.late?'down':'up')
+  +CP.tile('calendar','','Délai moyen de paiement','<span>'+(x.avgDelay==null?'–':x.avgDelay+' '+esc(t('j')))+'</span>',tf('Conditions : {0} jours',c.terms||30))+'</div>';
+ var left='',right='';
+ left+=CP.card('Évolution du chiffre d’affaires',chart(x.all));
+ /* balance âgée */
+ left+=CP.card('Impayés par ancienneté','<div class="c2-aging">'+x.bk.map(function(v,i){return '<div class="c2-ag'+(i>1&&v?' bad':'')+'"><span>'+esc(t(BK[i]))+'</span><b>'+mon(v)+'</b></div>'}).join('')+'</div>');
+ /* factures */
+ var L=x.all.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'')}).slice(0,40);
+ left+=CP.card('Factures et devis ('+x.all.length+')',L.length?'<div style="overflow-x:auto"><table class="mini c2-t"><thead><tr><th>N°</th><th>'+esc(t('Type'))+'</th><th>Date</th><th>'+esc(t('Échéance'))+'</th><th style="text-align:right">'+esc(t('Montant'))+'</th><th>'+esc(t('Statut'))+'</th></tr></thead><tbody>'+L.map(function(i){var late=i.type==='inv'&&i.st!=='paid'&&i.due&&i.due<td,d=late?dd(i.due,td):0;return '<tr><td><b>'+esc(i.id)+'</b></td><td>'+esc(t({inv:'Facture',quote:'Devis',credit:'Avoir'}[i.type]||i.type))+'</td><td>'+esc(CP.dfmt(i.date))+'</td><td>'+esc(i.due?CP.dfmt(i.due):'–')+'</td><td style="text-align:right">'+mon(sgn(i))+'</td><td>'+(i.type==='quote'?CP.pill('info','Devis'):i.st==='paid'?CP.pill('good','Payée'):late?CP.pill('err',tf('Retard {0} j',d)):CP.pill('warn','À payer'))+'</td></tr>'}).join('')+'</tbody></table></div>':'<p class="sub">'+esc(t('Aucune facture pour ce client.'))+'</p>');
+ /* produits */
+ var pm={};x.inv.forEach(function(i){(i.items||[]).forEach(function(it){var k=it.d||'—';pm[k]=pm[k]||{q:0,v:0};pm[k].q+=+it.q||0;pm[k].v+=it.t!=null?it.t:(+it.q||0)*(+it.pu||0)})});
+ var pl=Object.keys(pm).map(function(k){return{d:k,q:pm[k].q,v:pm[k].v}}).sort(function(a,b){return b.v-a.v}).slice(0,6);
+ left+=CP.card('Ce que ce client achète',pl.length?'<table class="mini c2-t"><thead><tr><th>'+esc(t('Désignation'))+'</th><th style="text-align:right">'+esc(t('Quantité'))+'</th><th style="text-align:right">'+esc(t('Total'))+'</th></tr></thead><tbody>'+pl.map(function(p){return '<tr><td>'+esc(p.d)+'</td><td style="text-align:right">'+p.q+'</td><td style="text-align:right">'+mon(p.v)+'</td></tr>'}).join('')+'</tbody></table>':'<p class="sub">'+esc(t('Pas encore de lignes de facture.'))+'</p>');
+ /* identité */
+ right+=CP.card('Identité et coordonnées',kv('Contact',esc(c.contact||''))+kv('Téléphone',c.phone?'<a href="tel:+225'+phone10(c.phone)+'">'+esc(c.phone)+'</a>':'')+kv('WhatsApp',c.whatsapp?esc(c.whatsapp):'')+kv('E-mail',c.email?'<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>':'')+kv('Adresse',esc(c.address||''))+kv('Ville',esc([c.city,c.country].filter(Boolean).join(', ')))+kv('Type',esc(c.type||'Entreprise'))+kv('Secteur',esc(c.sector||''))+kv('Autre contact',esc(c.contact2||'')),'<button class="btn sm" data-act="cli.edit" data-id="'+c.id+'">'+esc(t('Modifier'))+'</button>');
+ var nccOk=c.ncc&&String(c.ncc).length===8;
+ right+=CP.card('Fiscalité et conditions',kv('NCC / IFU',c.ncc?esc(c.ncc)+(nccOk?'':' ⚠'):'')+kv('RCCM',esc(c.rccm||''))+kv('Assujetti à la TVA',esc(c.vat==='non'?'Non':'Oui'))+kv('Délai de paiement',esc((c.terms||30)+' '+t('jours')))+kv('Plafond de crédit',c.limit?mon(c.limit):'')+kv('Moyen de paiement habituel',esc(c.pay||''))+kv('Client depuis',x.first?esc(CP.dfmt(x.first)):'')+kv('Dernière facture',x.last?esc(CP.dfmt(x.last)):'')
+  +((!c.email||!c.phone)&&(c.type||'Entreprise')==='Entreprise'?'<p class="c2-warn">'+esc(t('E-mail et téléphone sont exigés par la DGI pour les factures entre entreprises.'))+'</p>':'')+(c.ncc&&!nccOk?'<p class="c2-warn">'+esc(t('Le NCC doit contenir 8 caractères.'))+'</p>':''));
+ /* notes + journal */
+ var logs=(c.log||[]).slice().reverse(),fu=(S().auto&&S().auto.fu||{})[c.name];
+ var tl=[];x.all.forEach(function(i){tl.push({d:i.date,x:(i.type==='quote'?'Devis ':i.type==='credit'?'Avoir ':'Facture ')+i.id+' · '+mon(sgn(i))});if(i.paidAt&&i.st==='paid')tl.push({d:i.paidAt,x:'Paiement reçu · '+i.id})});
+ if(fu)tl.push({d:fu,x:'Relance préparée'});(c.log||[]).forEach(function(n){tl.push({d:n.d,x:'Note : '+n.x})});
+ tl.sort(function(a,b){return (b.d||'').localeCompare(a.d||'')});
+ right+=CP.card('Notes internes',(c.notes?'<p class="c2-note">'+esc(c.notes).replace(/\n/g,'<br>')+'</p>':'<p class="sub">'+esc(t('Aucune note. Ajoute un accord, une préférence, une remarque.'))+'</p>'),CP.btn('Ajouter une note','cli.note',{id:c.id}));
+ right+=CP.card('Historique',tl.length?'<ul class="c2-tl">'+tl.slice(0,25).map(function(e){return '<li><time>'+esc(CP.dfmt(e.d))+'</time><span>'+esc(e.x)+'</span></li>'}).join('')+'</ul>':'<p class="sub">'+esc(t('Rien pour le moment.'))+'</p>');
+ return h+'<div class="c2-grid"><div class="c2-col">'+left+'</div><div class="c2-col">'+right+'</div></div>';
+};
+
+/* ---------- Actions ---------- */
+ACT['cli.open']=function(id){if(!by(S().clients,id))return;CP.U.cid=id;CP.nav('client')};
+function fields(c,isNew){
+ c=c||{};var locked=!isNew&&(S().inv||[]).some(function(i){return i.client===c.name});
+ return (locked?[]:[{k:'name',l:'Nom du client',req:true,w:true,v:c.name}]).concat([
+  {k:'type',l:'Type',t:'select',o:['Entreprise','Particulier'],v:c.type||'Entreprise'},
+  {k:'contact',l:'Personne à contacter',v:c.contact},
+  {k:'phone',l:'Téléphone',v:c.phone,ph:'07 00 00 00 00'},{k:'whatsapp',l:'WhatsApp (si différent)',v:c.whatsapp},
+  {k:'email',l:'E-mail',t:'email',w:true,v:c.email},
+  {k:'address',l:'Adresse',w:true,v:c.address},
+  {k:'city',l:'Ville',v:c.city},{k:'country',l:'Pays',v:c.country||'Côte d’Ivoire'},
+  {k:'ncc',l:'NCC / IFU (8 caractères)',v:c.ncc},{k:'rccm',l:'RCCM',v:c.rccm},
+  {k:'vat',l:'Assujetti à la TVA',t:'select',o:['oui','non'],v:c.vat||'oui'},
+  {k:'terms',l:'Délai de paiement (jours)',t:'number',v:c.terms||30,max:365},
+  {k:'limit',l:'Plafond de crédit',t:'money',v:c.limit||null,h:'Laisse vide s’il n’y en a pas.'},
+  {k:'pay',l:'Moyen de paiement habituel',t:'select',o:['','Virement','Espèces','Chèque','Mobile Money','Carte'],v:c.pay||''},
+  {k:'sector',l:'Secteur d’activité',v:c.sector},{k:'contact2',l:'Autre contact',v:c.contact2},
+  {k:'tags',l:'Étiquettes (séparées par des virgules)',w:true,v:c.tags,ph:'VIP, Grossiste'},
+  {k:'notes',l:'Notes internes',t:'textarea',w:true,v:c.notes}]);
+}
+function check(v){
+ if(v.ncc&&!/^[A-Za-z0-9]{8}$/.test(v.ncc.replace(/\s/g,'')))return t('Le NCC doit contenir exactement 8 caractères.');
+ if(v.phone&&phone10(v.phone).length!==10)return t('Téléphone ivoirien : 10 chiffres (ex. 07 00 00 00 00).');
+ if(v.whatsapp&&phone10(v.whatsapp).length!==10)return t('WhatsApp : 10 chiffres.');
+ return '';
+}
+function clean(v){var o={};Object.keys(v).forEach(function(k){if(v[k]!==''&&v[k]!=null)o[k]=v[k]});if(o.ncc)o.ncc=o.ncc.replace(/\s/g,'').toUpperCase();if(o.terms==null)o.terms=30;return o}
+ACT['cli.new']=function(){
+ CP.form({title:'Nouveau client',sub:'Seul le nom est obligatoire. Tu pourras compléter la fiche plus tard.',cls:'wide',fields:fields({},true),fn:function(v){
+  var e=check(v);if(e)return e;
+  if(S().clients.some(function(c){return c.name.toLowerCase()===v.name.toLowerCase()}))return t('Ce client existe déjà.');
+  var c=Object.assign({id:'c'+CP.uid(),hist:0,since:CP.today()},clean(v));S().clients.unshift(c);
+  CP.log('Client ajouté : '+c.name);CP.toast(tf('Client {0} ajouté',c.name),'win');CP.track&&CP.track('cli');CP.save();CP.U.cid=c.id;CP.nav('client');}});
+};
+ACT['cli.edit']=function(id){
+ var c=by(S().clients,id);if(!c)return;
+ CP.form({title:'Modifier la fiche client',sub:'Le nom ne peut plus changer dès que le client a des factures (elles sont verrouillées).',cls:'wide',fields:fields(c,false),fn:function(v){
+  var e=check(v);if(e)return e;
+  ['whatsapp','address','country','ncc','rccm','sector','contact2','tags','notes','pay','phone','email','contact','city','limit'].forEach(function(k){delete c[k]});
+  Object.assign(c,clean(v));CP.log('Client modifié : '+c.name);CP.toast(t('Fiche enregistrée'),'win');CP.save();CP.render(false);}});
+};
+ACT['cli.note']=function(id){
+ var c=by(S().clients,id);if(!c)return;
+ CP.form({title:'Ajouter une note',fields:[{k:'x',l:'Note',t:'textarea',req:true,w:true,ph:'Appelé le client, il paie vendredi.'}],fn:function(v){(c.log=c.log||[]).push({d:CP.today(),x:v.x,by:S().settings&&S().settings.name});CP.log('Note client : '+c.name);CP.save();CP.render(false)}});
+};
+ACT['cli.relance']=function(id){var c=by(S().clients,id);if(c&&CP.autoRelance)CP.autoRelance(c.name);else CP.toast(t('Aucune facture en retard pour ce client.'),'info')};
+ACT['cli.export']=function(){
+ var H=['Nom','Type','Contact','Téléphone','E-mail','Adresse','Ville','NCC','RCCM','Délai (j)','CA cumulé','Impayé','En retard'];
+ var rows=[H.join(';')].concat(S().clients.map(function(c){var x=stats(c);return [c.name,c.type||'',c.contact||'',c.phone||'',c.email||'',c.address||'',c.city||'',c.ncc||'',c.rccm||'',c.terms||30,x.ca,x.unpaid,x.late].map(function(v){return String(v).replace(/;/g,',')}).join(';')}));
+ CP.saveFile('clients.csv','﻿'+rows.join('\n'));
+};
+/* clic sur une ligne du tableau = ouvrir la fiche */
+document.addEventListener('click',function(e){
+ var tr=e.target.closest&&e.target.closest('.tb-body[data-tid="clients"] tr');
+ if(!tr||e.target.closest('button,a,input,select,label'))return;
+ var b=tr.querySelector('[data-act="cli.inv"][data-id],[data-act="cli.open"][data-id]');if(b)ACT['cli.open'](b.getAttribute('data-id'));
+});
+var st=document.createElement('style');st.textContent=[
+'.tb-body[data-tid="clients"] tbody tr{cursor:pointer}',
+'.c2-top{margin-bottom:12px}',
+'.c2-hero{display:flex;gap:18px;align-items:center;flex-wrap:wrap;background:var(--panel);border-radius:24px;padding:20px;box-shadow:var(--soft);margin-bottom:16px}',
+'.c2-av{width:68px;height:68px;border-radius:22px;display:grid;place-items:center;background:var(--acc);color:var(--on-acc);font:800 30px var(--disp);flex:none}',
+'.c2-id{flex:1;min-width:200px}.c2-id h1{margin:0;font:800 26px var(--disp)}',
+'.c2-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.c2-tag{padding:3px 10px;border-radius:99px;background:var(--panel2);font-size:12px;color:var(--muted)}',
+'.c2-hero .actions{display:flex;gap:8px;flex-wrap:wrap}',
+'.c2-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;margin-top:16px}',
+'.c2-col{display:flex;flex-direction:column;gap:16px;min-width:0}',
+'@media (max-width:1000px){.c2-grid{grid-template-columns:1fr}}',
+'.c2-kv{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--ol);font-size:14px}',
+'.c2-kv:last-child{border:0}.c2-kv span{color:var(--muted)}.c2-kv b{font-weight:600;text-align:right;word-break:break-word}.c2-na{color:var(--muted);font-weight:400}',
+'.c2-aging{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}',
+'.c2-ag{background:var(--panel2);border-radius:16px;padding:12px}.c2-ag span{display:block;font-size:12px;color:var(--muted)}.c2-ag b{font-size:15px}.c2-ag.bad b{color:#c0392b}',
+'.c2-t{width:100%;font-size:13px}.c2-t th{text-align:left;color:var(--muted);font-weight:600;padding:6px 8px}.c2-t td{padding:8px}',
+'.c2-warn{margin:10px 0 0;padding:10px 12px;border-radius:14px;background:#fff4e0;color:#8a5a00;font-size:13px}',
+'.c2-note{white-space:normal;margin:0;line-height:1.5}',
+'.c2-tl{list-style:none;margin:0;padding:0}.c2-tl li{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--ol);font-size:13px}.c2-tl time{color:var(--muted);flex:none;width:86px}'
+].join('\n');document.head.appendChild(st);
+CP.clientStats=stats;
 })();
 
 </script>
