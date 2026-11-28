@@ -7249,4 +7249,48 @@ var st=document.createElement('style');st.textContent=[
 CP.clientStats=stats;
 })();
 
+/* ===== Écran de connexion / création de compte : en-tête coloré + feuille blanche, champs en pastilles ===== */
+(function(){"use strict";
+var CP=window.CP;
+var css=[
+'#auth{background:linear-gradient(160deg,#c3d3e6,#aebfd6)!important;padding:24px 16px!important;place-items:center!important}',
+':root[data-mode="dark"] #auth{background:var(--bg)!important}',
+'#auth .lg-wrap{width:min(420px,100%);display:flex;flex-direction:column;gap:14px;align-items:stretch}',
+'#auth .lg-card{position:relative;display:flex;flex-direction:column;gap:12px;padding:196px 28px 26px;border-radius:44px;overflow:hidden;background:linear-gradient(#e8714b,#e8714b);box-shadow:0 30px 60px -20px rgba(30,50,80,.45);border:0}',
+'#auth .lg-card::before{content:"";position:absolute;left:0;right:0;top:0;height:300px;z-index:0;background:radial-gradient(circle at 0% 62%,#d8b85c 0 70px,transparent 71px),radial-gradient(circle at 104% 72%,#4fbb8c 0 78px,transparent 79px),#e8714b}',
+'#auth .lg-card::after{content:"";position:absolute;left:0;right:0;top:150px;bottom:0;z-index:0;background:var(--panel,#fff);border-radius:40px 40px 0 0}',
+'#auth .lg-card>*{position:relative;z-index:1}',
+'#auth .lg-logo{position:absolute;top:24px;left:0;right:0;display:flex;justify-content:center;z-index:2}',
+'#auth .lg-logo .mascot,#auth .lg-logo svg,#auth .lg-logo img{width:30px;height:30px}',
+'#auth .lg-brand{display:none}',
+'#auth .lg-card h1{position:absolute;top:80px;left:24px;right:24px;margin:0;text-align:center;color:#fff;font:800 32px/1.1 var(--disp);z-index:2}',
+'#auth .lg-sub,#auth .lg-prov+*{display:none}',
+'#auth .lg-prov{margin-top:0}',
+'#auth .lg-soc{order:1;display:flex;gap:8px}',
+'#auth .lg-or{order:2;text-align:center;color:var(--muted);margin:2px 0;display:block}',
+'#auth .lg-or span{padding:0 6px}#auth .lg-or::before,#auth .lg-or::after{display:none}',
+'#auth #authForm{order:3;display:flex;flex-direction:column;gap:10px}',
+'#auth .lg-alt{order:4}#auth .lg-note{order:5;font-size:12px}#auth .lg-sw{order:6;text-align:center;margin:4px 0 0}',
+'#auth .lg-sec{height:52px;border-radius:999px;border:1.5px solid var(--ol,#e3e3e3);background:var(--panel,#fff);justify-content:center;font-weight:600;flex:1}',
+'#auth .lg-f label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
+'#auth .lg-f{gap:0}',
+'#auth .lg-in{height:52px;border-radius:999px;border:0;background:var(--panel2,#f4f4f4);padding:0 22px;font-size:15px;width:100%}',
+'#auth .lg-in:focus{outline:2px solid var(--fg,#111);outline-offset:1px}',
+'#auth .pw{display:flex;gap:6px}#auth .pw .lg-in{flex:1;min-width:0}',
+'#auth .lg-eye{position:static;width:56px;height:52px;border-radius:999px;border:0;background:var(--panel2,#f4f4f4);display:grid;place-items:center;color:var(--fg,#111);flex:none;transform:none}',
+'#auth .lg-go{height:56px;border-radius:999px;border:0;background:#111;color:#fff;font:700 16px var(--body);justify-content:center;margin-top:8px;box-shadow:none}',
+':root[data-mode="dark"] #auth .lg-go{background:#fff;color:#111}',
+'#auth .lg-go svg{display:none}',
+'#auth .lg-row{font-size:13px}',
+'#auth .lg-legal{text-align:center;font-size:12px;color:#40546e;margin:0;padding:0 12px}',
+':root[data-mode="dark"] #auth .lg-legal{color:var(--muted)}',
+'#auth .lg-lnk{text-decoration:underline;text-underline-offset:3px;color:inherit}',
+'@media (max-width:480px){#auth{padding:16px 12px!important}#auth .lg-card{padding:190px 22px 22px}}'
+].join('\n');
+var st=document.createElement('style');st.textContent=css;document.head.appendChild(st);
+function ph(){var a=document.getElementById('auth');if(!a)return;Array.prototype.forEach.call(a.querySelectorAll('.lg-f'),function(f){var l=f.querySelector('label'),i=f.querySelector('input');if(l&&i&&!i.placeholder)i.placeholder=l.textContent.replace(/\s*\*$/,'')})}
+var a=document.getElementById('auth');if(a)new MutationObserver(ph).observe(a,{childList:true,subtree:true});
+ph();
+})();
+
 </script>
